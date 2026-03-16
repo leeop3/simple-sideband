@@ -9,61 +9,88 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    
-    permissions:
-      contents: write 
+    timeout-minutes: 180  # Increased from 90 to 180 minutes
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
+      
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android, armv7-linux-androideabi
-
+      
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential autoconf libtool libltdl-dev pkg-config \
+            python3-pip python3-setuptools python3-wheel \
+            build-essential autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
-            libjpeg-dev libpng-dev automake
-
-      - name: Install Buildozer
+            libjpeg-dev libpng-dev libbz2-dev \
+            wget curl unzip git
+          
+          # Increase download timeout
+          echo "export DOWNLOAD_TIMEOUT=300" >> $GITHUB_ENV
+      
+      - name: Upgrade Buildozer (fixes download issues)
         run: |
-          pip install --upgrade pip
-          pip install "buildozer>=1.5.0" "cython<3.0"
-
-      - name: Manual NDK Download
+          pip install --upgrade pip setuptools wheel
+          pip install --upgrade buildozer cython==0.29.36
+          pip install urllib3 requests --upgrade
+      
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/android-ndk
+            ~/.buildozer/android/platform/apache-ant
+          key: ${{ runner.os }}-android-sdk-ndk-v2
+          restore-keys: |
+            ${{ runner.os }}-android-sdk-ndk-
+      
+      - name: Pre-download Android NDK (with retry)
         run: |
-          mkdir -p ~/.buildozer/android/platform
-          curl -L https://dl.google.com/android/repository/android-ndk-r25b-linux.zip -o ndk.zip
-          unzip -q ndk.zip -d ~/.buildozer/android/platform/
-          rm ndk.zip
-
-      - name: Build APK with Buildozer
+          mkdir -p ~/.buildozer/android/platform/android-ndk
+          cd ~/.buildozer/android/platform/android-ndk
+          
+          # Download with curl (more reliable than urllib)
+          if [ ! -f "android-ndk-r25.2.9519653-linux.zip" ]; then
+            echo "Downloading Android NDK with curl..."
+            curl -L --retry 3 --retry-delay 10 --connect-timeout 60 \
+              -o android-ndk-r25.2.9519653-linux.zip \
+              "https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip"
+          fi
+          
+          # Extract if not already extracted
+          if [ ! -d "android-ndk-r25.2" ]; then
+            echo "Extracting Android NDK..."
+            unzip -q android-ndk-r25.2.9519653-linux.zip
+            mv android-ndk-r25.2 android-ndk-r25.2-extracted 2>/dev/null || true
+          fi
+      
+      - name: Accept Android licenses
+        run: |
+          mkdir -p ~/.android
+          echo "count=0" > ~/.android/repositories.cfg
+          yes | sdkmanager --licenses 2>/dev/null || true
+      
+      - name: Build APK with Buildozer (with verbose logging)
+        run: |
+          # Set environment variables for more reliable downloads
+          export P4A_RELEASE_ANDROID_NDK=r25.2.9519653
+          export DOWNLOAD_TIMEOUT=300
+          
+          # Clean previous build artifacts that might cause issues
+          rm -rf .buildozer/android/platform/build*/build/ 2>/dev/null || true
+          
+          # Build with verbose output for debugging
+          buildozer -v android debug
         env:
-          ANDROID_NDK_HOME: /home/runner/.buildozer/android/platform/android-ndk-r25b
-          ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r25b
-        run: |
-          # Accepting licenses and running with verbose logging
-          yes | buildozer -v android debug
-
+          BUILDODEZER_DEBUG: 1
+          PYTHONUNBUFFERED: 1
+      
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         if: success()
@@ -77,5 +104,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: bin/*.apk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            .buildozer/logs/
+            bin/*.log
+          retention-days: 7

@@ -11,14 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     
-    steps:
+   steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Free Disk Space
         run: |
           sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/lib/android # This frees ~10GB of old SDKs
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
@@ -27,8 +27,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-    # 1. Install Rust and Android Targets
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -40,32 +39,29 @@ jobs:
           sudo apt-get install -y \
             build-essential autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
-            libjpeg-dev libpng-dev \
-            automake
-      
+            libjpeg-dev libpng-dev automake
+
       - name: Install Buildozer
         run: |
           pip install --upgrade pip
           pip install "buildozer>=1.5.0" "cython<3.0"
-      
- # 2. Set Environment Variables for Cryptography
-      # This tells the Rust compiler where the Android NDK tools are.
+
+      # THIS STEP FIXES THE DOWNLOAD ERROR
+      - name: Manual NDK Download
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          echo "Downloading NDK..."
+          curl -L https://dl.google.com/android/repository/android-ndk-r25b-linux.zip -o ndk.zip
+          echo "Unzipping NDK..."
+          unzip -q ndk.zip -d ~/.buildozer/android/platform/
+          # Buildozer looks for this specific folder name:
+          mv ~/.buildozer/android/platform/android-ndk-r25b ~/.buildozer/android/platform/android-ndk-r25.2.9519653
+          rm ndk.zip
+
       - name: Build APK with Buildozer
         run: |
-          export APP_ANDROID_ARCHS="arm64-v8a,armeabi-v7a"
+          # Use 'yes' to handle any prompts
           yes | buildozer -v android debug
-
-      - name: Accept Android licenses
-        run: |
-          mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
-          yes | sdkmanager --licenses || true
-      
-
-      - name: Build APK with Buildozer
-        run: |
-          buildozer -v android debug
-      
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         if: success()

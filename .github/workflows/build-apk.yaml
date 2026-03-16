@@ -9,7 +9,7 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # Increased from 90 to 180 minutes
+    timeout-minutes: 180
     
     steps:
       - name: Checkout code
@@ -29,11 +29,8 @@ jobs:
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
             libjpeg-dev libpng-dev libbz2-dev \
             wget curl unzip git
-          
-          # Increase download timeout
-          echo "export DOWNLOAD_TIMEOUT=300" >> $GITHUB_ENV
       
-      - name: Upgrade Buildozer (fixes download issues)
+      - name: Upgrade Buildozer
         run: |
           pip install --upgrade pip setuptools wheel
           pip install --upgrade buildozer cython==0.29.36
@@ -46,29 +43,45 @@ jobs:
             ~/.buildozer/android/platform/android-sdk
             ~/.buildozer/android/platform/android-ndk
             ~/.buildozer/android/platform/apache-ant
-          key: ${{ runner.os }}-android-sdk-ndk-v2
+          key: ${{ runner.os }}-android-sdk-ndk-v3
           restore-keys: |
             ${{ runner.os }}-android-sdk-ndk-
       
-      - name: Pre-download Android NDK (with retry)
+      - name: Pre-download Android NDK (FIXED)
         run: |
           mkdir -p ~/.buildozer/android/platform/android-ndk
           cd ~/.buildozer/android/platform/android-ndk
           
-          # Download with curl (more reliable than urllib)
-          if [ ! -f "android-ndk-r25.2.9519653-linux.zip" ]; then
-            echo "Downloading Android NDK with curl..."
-            curl -L --retry 3 --retry-delay 10 --connect-timeout 60 \
-              -o android-ndk-r25.2.9519653-linux.zip \
-              "https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip"
+          NDK_FILE="android-ndk-r25.2.9519653-linux.zip"
+          
+          # Check if already downloaded and valid
+          if [ -f "$NDK_FILE" ] && [ $(stat -f%z "$NDK_FILE" 2>/dev/null || stat -c%s "$NDK_FILE" 2>/dev/null) -gt 100000000 ]; then
+            echo "✅ NDK already downloaded and valid"
+          else
+            echo "🔄 Downloading Android NDK with wget (more reliable)..."
+            # Use wget with retries and proper redirect handling
+            wget --no-verbose --tries=3 --waitretry=5 \
+              --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+              -O "$NDK_FILE" "$NDK_URL"
+            
+            # Verify download succeeded
+            FILE_SIZE=$(stat -c%s "$NDK_FILE" 2>/dev/null || stat -f%z "$NDK_FILE" 2>/dev/null)
+            echo "Downloaded file size: $FILE_SIZE bytes"
+            
+            if [ "$FILE_SIZE" -lt 100000000 ]; then
+              echo "❌ Download failed - file too small"
+              exit 1
+            fi
           fi
           
-          # Extract if not already extracted
+          # Extract if needed
           if [ ! -d "android-ndk-r25.2" ]; then
-            echo "Extracting Android NDK..."
-            unzip -q android-ndk-r25.2.9519653-linux.zip
-            mv android-ndk-r25.2 android-ndk-r25.2-extracted 2>/dev/null || true
+            echo "📦 Extracting Android NDK..."
+            unzip -q "$NDK_FILE"
           fi
+          
+          echo "✅ NDK ready"
       
       - name: Accept Android licenses
         run: |
@@ -76,16 +89,15 @@ jobs:
           echo "count=0" > ~/.android/repositories.cfg
           yes | sdkmanager --licenses 2>/dev/null || true
       
-      - name: Build APK with Buildozer (with verbose logging)
+      - name: Build APK with Buildozer
         run: |
-          # Set environment variables for more reliable downloads
           export P4A_RELEASE_ANDROID_NDK=r25.2.9519653
           export DOWNLOAD_TIMEOUT=300
           
-          # Clean previous build artifacts that might cause issues
+          # Clean problematic build artifacts
           rm -rf .buildozer/android/platform/build*/build/ 2>/dev/null || true
           
-          # Build with verbose output for debugging
+          # Build with verbose output
           buildozer -v android debug
         env:
           BUILDODEZER_DEBUG: 1
@@ -104,11 +116,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: bin/*.apk
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Upload build logs on failure
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:

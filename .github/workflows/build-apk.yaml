@@ -43,30 +43,32 @@ jobs:
             ~/.buildozer/android/platform/android-sdk
             ~/.buildozer/android/platform/android-ndk
             ~/.buildozer/android/platform/apache-ant
-          key: ${{ runner.os }}-android-sdk-ndk-v3
+          key: ${{ runner.os }}-android-sdk-ndk-v4
           restore-keys: |
             ${{ runner.os }}-android-sdk-ndk-
       
-      - name: Pre-download Android NDK (FIXED)
+      - name: Pre-download Android NDK (FIXED URL)
         run: |
           mkdir -p ~/.buildozer/android/platform/android-ndk
           cd ~/.buildozer/android/platform/android-ndk
           
-          NDK_URL="https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip"
-          NDK_FILE="android-ndk-r25.2.9519653-linux.zip"
+          # ✅ Use the short-form URL that Google maintains
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
+          NDK_FILE="android-ndk-r25b-linux.zip"
+          NDK_FOLDER="android-ndk-r25b"
           
           # Check if already downloaded and valid
-          if [ -f "$NDK_FILE" ] && [ $(stat -f%z "$NDK_FILE" 2>/dev/null || stat -c%s "$NDK_FILE" 2>/dev/null) -gt 100000000 ]; then
+          if [ -f "$NDK_FILE" ] && [ $(stat -c%s "$NDK_FILE" 2>/dev/null) -gt 100000000 ]; then
             echo "✅ NDK already downloaded and valid"
           else
-            echo "🔄 Downloading Android NDK with wget (more reliable)..."
-            # Use wget with retries and proper redirect handling
+            echo "🔄 Downloading Android NDK r25b..."
+            # Use wget with retries and proper headers
             wget --no-verbose --tries=3 --waitretry=5 \
               --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
               -O "$NDK_FILE" "$NDK_URL"
             
             # Verify download succeeded
-            FILE_SIZE=$(stat -c%s "$NDK_FILE" 2>/dev/null || stat -f%z "$NDK_FILE" 2>/dev/null)
+            FILE_SIZE=$(stat -c%s "$NDK_FILE" 2>/dev/null)
             echo "Downloaded file size: $FILE_SIZE bytes"
             
             if [ "$FILE_SIZE" -lt 100000000 ]; then
@@ -76,12 +78,12 @@ jobs:
           fi
           
           # Extract if needed
-          if [ ! -d "android-ndk-r25.2" ]; then
+          if [ ! -d "$NDK_FOLDER" ]; then
             echo "📦 Extracting Android NDK..."
             unzip -q "$NDK_FILE"
           fi
           
-          echo "✅ NDK ready"
+          echo "✅ NDK ready: $NDK_FOLDER"
       
       - name: Accept Android licenses
         run: |
@@ -91,7 +93,8 @@ jobs:
       
       - name: Build APK with Buildozer
         run: |
-          export P4A_RELEASE_ANDROID_NDK=r25.2.9519653
+          # ✅ Use NDK version that matches the downloaded folder
+          export P4A_RELEASE_ANDROID_NDK=r25b
           export DOWNLOAD_TIMEOUT=300
           
           # Clean problematic build artifacts

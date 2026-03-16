@@ -7,7 +7,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,db
 source.exclude_exts = spec
 version = 0.2.0
 
-# FIXED: Added libbz2 for _bz2 module + sqlite3 for contacts
+# FIXED: Added libbz2 for _bz2 module
 requirements = python3,kivy==2.3.0,rns,lxmf,pillow,msgpack,cryptography,requests,plyer,sqlite3,libbz2
 
 orientation = portrait
@@ -17,16 +17,17 @@ android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE
 
 android.api = 33
 android.minapi = 27
-android.ndk = 25.2.9519653
+# ✅ FIXED: Use r25b (short form) to match downloaded NDK
+android.ndk = r25b
 android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
 
-# FIXED: Added bz2 recipe for Android
+# FIXED: Added bz2 recipe
 android.recipes = cryptography,pillow,sqlite3,bz2
 
-# Prevent buildozer from re-downloading NDK every time
-android.sdk_path = 
-android.ndk_path = 
+android.add_aars = 
+android.extra_gradle_repositories = 
+android.gradle_dependencies = androidx.core:core-ktx:1.9.0
 
 [buildozer]
 log_level = 2

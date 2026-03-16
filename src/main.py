@@ -1,4 +1,4 @@
-# src/main.py - Chat App with RNode + Contacts + Notifications!
+# src/main.py
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
@@ -10,13 +10,10 @@ from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserIconView
-from kivy.uix.screenmanager import ScreenManager, Screen
 
 from networking.reticulum_manager import ReticulumManager
 from networking.lxmf_client import LXMFClient, Message
 from utils.image_handler import decode_and_save_image
-from utils.notification_manager import NotificationManager
-from data.contact_manager import ContactManager
 
 import os
 import tempfile
@@ -96,12 +93,10 @@ class ImageBubble(BoxLayout):
 
 
 class ChatScreen(BoxLayout):
-    def __init__(self, lxmf_client, my_address, contact_manager, notification_manager, **kwargs):
+    def __init__(self, lxmf_client, my_address, **kwargs):
         super().__init__(**kwargs)
         self.lxmf = lxmf_client
         self.my_address = my_address
-        self.contacts = contact_manager
-        self.notifications = notification_manager
         self.orientation = "vertical"
         self.padding = [10, 10, 10, 10]
         self.spacing = 5
@@ -134,7 +129,7 @@ class ChatScreen(BoxLayout):
         
         dest_label = Label(text="Send to (LXMF address):", size_hint_y=None, height=25, font_size="9sp")
         self.dest_input = TextInput(
-            hint_text="Paste address or select contact...",
+            hint_text="Paste address here...",
             multiline=False,
             size_hint_y=None,
             height=35,
@@ -166,17 +161,9 @@ class ChatScreen(BoxLayout):
         )
         send_btn.bind(on_press=self.on_send_text)
         
-        contacts_btn = Button(
-            text="Contacts",
-            size_hint_x=0.2,
-            background_color=(0.5, 0.3, 0.5, 1)
-        )
-        contacts_btn.bind(on_press=self.open_contacts)
-        
         input_row.add_widget(self.msg_input)
         input_row.add_widget(img_btn)
         input_row.add_widget(send_btn)
-        input_row.add_widget(contacts_btn)
         self.add_widget(input_row)
         
         self.add_message("Welcome! Send text or images!", is_sent=False)
@@ -250,104 +237,10 @@ class ChatScreen(BoxLayout):
         self.add_image(image_path, is_sent=True, filename=os.path.basename(image_path))
         self.lxmf.send_image(destination, image_path)
     
-    def open_contacts(self, instance):
-        """Open contacts popup"""
-        content = BoxLayout(orientation="vertical")
-        
-        contacts_list = BoxLayout(orientation="vertical", size_hint_y=None)
-        contacts_list.bind(minimum_height=contacts_list.setter("height"))
-        
-        contacts = self.contacts.get_all_contacts()
-        if not contacts:
-            label = Label(text="No contacts yet. Add from chat!", size_hint_y=None, height=40)
-            contacts_list.add_widget(label)
-        else:
-            for name, address, added in contacts:
-                btn = Button(
-                    text=name + " (" + address[:8] + "...)",
-                    size_hint_y=None,
-                    height=40
-                )
-                btn.bind(on_press=lambda x, addr=address: self.select_contact(addr))
-                contacts_list.add_widget(btn)
-        
-        scroll = ScrollView()
-        scroll.add_widget(contacts_list)
-        
-        btn_row = BoxLayout(size_hint_y=None, height=50)
-        
-        add_btn = Button(text="Add Contact", background_color=(0.2, 0.6, 0.2, 1))
-        add_btn.bind(on_press=lambda x: self.open_add_contact())
-        
-        close_btn = Button(text="Close")
-        close_btn.bind(on_press=lambda x: self.contacts_popup.dismiss())
-        
-        btn_row.add_widget(add_btn)
-        btn_row.add_widget(close_btn)
-        
-        content.add_widget(scroll)
-        content.add_widget(btn_row)
-        
-        self.contacts_popup = Popup(
-            title="Contacts",
-            content=content,
-            size_hint=(0.9, 0.8)
-        )
-        self.contacts_popup.open()
-    
-    def select_contact(self, address):
-        """Select contact from list"""
-        self.dest_input.text = address
-        self.contacts_popup.dismiss()
-    
-    def open_add_contact(self):
-        """Open add contact dialog"""
-        self.contacts_popup.dismiss()
-        
-        content = BoxLayout(orientation="vertical", spacing=10, padding=20)
-        
-        content.add_widget(Label(text="Contact Name:"))
-        name_input = TextInput(hint_text="Enter name", multiline=False)
-        content.add_widget(name_input)
-        
-        content.add_widget(Label(text="LXMF Address:"))
-        addr_input = TextInput(hint_text="Paste 32-char address", multiline=False)
-        content.add_widget(addr_input)
-        
-        btn_row = BoxLayout(size_hint_y=None, height=50)
-        
-        save_btn = Button(text="Save", background_color=(0.2, 0.7, 0.2, 1))
-        save_btn.bind(on_press=lambda x: self.save_contact(name_input.text, addr_input.text))
-        
-        cancel_btn = Button(text="Cancel")
-        cancel_btn.bind(on_press=lambda x: self.add_popup.dismiss())
-        
-        btn_row.add_widget(save_btn)
-        btn_row.add_widget(cancel_btn)
-        content.add_widget(btn_row)
-        
-        self.add_popup = Popup(
-            title="Add Contact",
-            content=content,
-            size_hint=(0.9, 0.6)
-        )
-        self.add_popup.open()
-    
-    def save_contact(self, name, address):
-        """Save new contact"""
-        self.add_popup.dismiss()
-        if name and address and len(address) == 32:
-            self.contacts.add_contact(name, address)
-            self.add_message("Contact saved: " + name, is_sent=False)
-        else:
-            self.add_message("Invalid name or address!", is_sent=False)
-    
     def handle_incoming_message(self, message):
         Clock.schedule_once(lambda dt: self._add_incoming(message), 0)
     
     def _add_incoming(self, message):
-        contact_name = self.contacts.get_contact_by_address(message.source_hash)
-        
         if message.is_image:
             parts = message.content.split(":", 2)
             if len(parts) == 3:
@@ -357,19 +250,11 @@ class ChatScreen(BoxLayout):
                 temp_path = os.path.join(tempfile.gettempdir(), "msg_" + str(message.timestamp) + ".jpg")
                 decode_and_save_image(encoded_data, temp_path)
                 
-                display_name = contact_name if contact_name else "[" + message.source_hash + "]"
-                prefix = display_name + " sent image: "
+                prefix = "[" + message.source_hash + "] "
                 self.add_image(temp_path, is_sent=False, filename=prefix + filename)
-                
-                self.notifications.show_image_notification(display_name)
-                self.notifications.vibrate()
         else:
-            display_name = contact_name if contact_name else "[" + message.source_hash + "]"
-            prefix = display_name + ": "
+            prefix = "[" + message.source_hash + "] "
             self.add_message(prefix + message.content, is_sent=False)
-            
-            self.notifications.show_message_notification(display_name, message.content)
-            self.notifications.vibrate()
 
 
 class SimpleChatApp(App):
@@ -387,10 +272,7 @@ class SimpleChatApp(App):
         if not my_address:
             my_address = self.ret_manager.get_address_hex()
         
-        self.contacts = ContactManager()
-        self.notifications = NotificationManager()
-        
-        self.chat_screen = ChatScreen(self.lxmf, my_address, self.contacts, self.notifications)
+        self.chat_screen = ChatScreen(self.lxmf, my_address)
         self.lxmf.set_message_callback(self.chat_screen.handle_incoming_message)
         
         return self.chat_screen

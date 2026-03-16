@@ -1,6 +1,4 @@
 # src/networking/lxmf_client.py
-# FIXED: Clean version with image support
-
 import LXMF
 import RNS
 

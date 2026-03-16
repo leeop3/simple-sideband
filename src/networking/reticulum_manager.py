@@ -1,6 +1,4 @@
 # src/networking/reticulum_manager.py
-# FIXED: Clean version with RNode support
-
 import RNS
 import LXMF
 import os
@@ -55,48 +53,6 @@ class ReticulumManager:
         except Exception as e:
             print("Could not add TCP interface: " + str(e))
             return False
-    
-    def add_rnode_serial_interface(self, port, baudrate=9600):
-        """Add RNode over serial (USB)"""
-        try:
-            from RNS.Interfaces import SerialInterface
-            print("Adding RNode serial interface on " + port + "...")
-            interface = SerialInterface(self.rns, port=port, baudrate=baudrate)
-            self.rns.add_interface(interface)
-            print("RNode serial interface added!")
-            return True
-        except Exception as e:
-            print("Could not add RNode serial: " + str(e))
-            return False
-    
-    def add_rnode_ble_interface(self, device_address=None):
-        """Add RNode over Bluetooth LE (Android)"""
-        try:
-            from RNS.Interfaces import BLEInterface
-            print("Adding RNode BLE interface...")
-            interface = BLEInterface(self.rns, device_address=device_address)
-            self.rns.add_interface(interface)
-            print("RNode BLE interface added!")
-            return True
-        except Exception as e:
-            print("Could not add RNode BLE: " + str(e))
-            return False
-    
-    def scan_for_rnode_ble_devices(self):
-        """Scan for nearby RNode BLE devices"""
-        try:
-            import bluetooth
-            print("Scanning for BLE devices...")
-            nearby_devices = bluetooth.discover_devices(duration=8, lookup_names=True)
-            rnode_devices = []
-            for addr, name in nearby_devices:
-                if "RNode" in name or "reticulum" in name.lower():
-                    rnode_devices.append((addr, name))
-                    print("Found RNode: " + name + " (" + addr + ")")
-            return rnode_devices
-        except Exception as e:
-            print("BLE scan error: " + str(e))
-            return []
     
     def shutdown(self):
         print("Shutting down Reticulum...")

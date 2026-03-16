@@ -1,5 +1,5 @@
 # src/networking/reticulum_manager.py
-# FIXED: Correct interface imports for newer RNS versions
+# FIXED: Clean version with RNode support
 
 import RNS
 import LXMF
@@ -7,97 +7,97 @@ import os
 from pathlib import Path
 
 class ReticulumManager:
-    """Manages Reticulum network connection and identity"""
-    
     def __init__(self, config_path=None):
         if config_path is None:
             config_path = str(Path.home() / ".simple_sideband")
         
         os.makedirs(config_path, exist_ok=True)
         
-        print("🔌 Initializing Reticulum...")
+        print("Initializing Reticulum...")
         
-        # Initialize Reticulum
         self.rns = RNS.Reticulum(
             configdir=config_path,
             loglevel=RNS.LOG_VERBOSE
         )
         
-        # Create or load our unique identity
         self.identity = self._load_or_create_identity(config_path)
         
-        # Initialize LXMF router
         self.lxmf_router = LXMF.LXMRouter(
             identity=self.identity,
             storagepath=os.path.join(config_path, "lxmf")
         )
         
-        print(f"✅ Reticulum ready! My address: {self.get_address_hex()}")
+        print("Reticulum ready! My address: " + self.get_address_hex())
     
     def _load_or_create_identity(self, config_path):
-        """Load existing identity or create a new one"""
         identity_file = os.path.join(config_path, "identity")
         
         if os.path.exists(identity_file):
-            print("📦 Loading saved identity...")
+            print("Loading saved identity...")
             return RNS.Identity.from_file(identity_file)
         else:
-            print("🆕 Creating new identity...")
+            print("Creating new identity...")
             new_identity = RNS.Identity()
             new_identity.to_file(identity_file)
             return new_identity
     
     def get_address_hex(self):
-        """Get our human-readable LXMF address"""
         return self.identity.hash.hex()
     
     def add_tcp_interface(self, host, port):
-        """Connect to a Reticulum hub over internet (for testing)"""
         try:
-            # ✅ FIXED: Try multiple import paths for TCP interface
-            tcp_interface = None
-            
-            # Try newer RNS versions first
-            try:
-                from RNS.Transport import TCPClientInterface
-                tcp_interface = TCPClientInterface
-            except ImportError:
-                pass
-            
-            # Try older path
-            if tcp_interface is None:
-                try:
-                    from RNS.Interfaces.TCPInterface import TCPClientInterface
-                    tcp_interface = TCPClientInterface
-                except ImportError:
-                    pass
-            
-            # Last resort: direct module import
-            if tcp_interface is None:
-                try:
-                    import RNS.Interfaces.TCPInterface as tcp_module
-                    tcp_interface = tcp_module.TCPClientInterface
-                except (ImportError, AttributeError):
-                    pass
-            
-            if tcp_interface is None:
-                print("⚠️ TCP interface not available in this RNS version")
-                print("💡 Local messaging will still work!")
-                return False
-            
-            # Create and add the interface
-            print(f"🌐 Connecting to {host}:{port}...")
-            interface = tcp_interface(self.rns, host, port)
+            from RNS.Transport import TCPClientInterface
+            print("Connecting to " + host + ":" + str(port) + "...")
+            interface = TCPClientInterface(self.rns, host, port)
             self.rns.add_interface(interface)
-            print("✅ TCP interface added!")
+            print("TCP interface added!")
             return True
-            
         except Exception as e:
-            print(f"⚠️ Could not add TCP interface: {e}")
-            print("💡 Local messaging will still work without internet hub!")
+            print("Could not add TCP interface: " + str(e))
             return False
     
+    def add_rnode_serial_interface(self, port, baudrate=9600):
+        """Add RNode over serial (USB)"""
+        try:
+            from RNS.Interfaces import SerialInterface
+            print("Adding RNode serial interface on " + port + "...")
+            interface = SerialInterface(self.rns, port=port, baudrate=baudrate)
+            self.rns.add_interface(interface)
+            print("RNode serial interface added!")
+            return True
+        except Exception as e:
+            print("Could not add RNode serial: " + str(e))
+            return False
+    
+    def add_rnode_ble_interface(self, device_address=None):
+        """Add RNode over Bluetooth LE (Android)"""
+        try:
+            from RNS.Interfaces import BLEInterface
+            print("Adding RNode BLE interface...")
+            interface = BLEInterface(self.rns, device_address=device_address)
+            self.rns.add_interface(interface)
+            print("RNode BLE interface added!")
+            return True
+        except Exception as e:
+            print("Could not add RNode BLE: " + str(e))
+            return False
+    
+    def scan_for_rnode_ble_devices(self):
+        """Scan for nearby RNode BLE devices"""
+        try:
+            import bluetooth
+            print("Scanning for BLE devices...")
+            nearby_devices = bluetooth.discover_devices(duration=8, lookup_names=True)
+            rnode_devices = []
+            for addr, name in nearby_devices:
+                if "RNode" in name or "reticulum" in name.lower():
+                    rnode_devices.append((addr, name))
+                    print("Found RNode: " + name + " (" + addr + ")")
+            return rnode_devices
+        except Exception as e:
+            print("BLE scan error: " + str(e))
+            return []
+    
     def shutdown(self):
-        """Cleanly shut down Reticulum"""
-        print("🔌 Shutting down Reticulum...")
+        print("Shutting down Reticulum...")
         self.rns.shutdown()

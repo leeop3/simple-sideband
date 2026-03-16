@@ -1,7 +1,8 @@
 # src/networking/lxmf_client.py
+# FIXED: Clean version with image support
+
 import LXMF
 import RNS
-from typing import Callable, Optional
 
 class Message:
     def __init__(self, timestamp, source_hash, content, is_image=False):

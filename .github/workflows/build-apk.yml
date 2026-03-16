@@ -11,7 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     
-   steps:
+    # REQUIRED: Grants the GITHUB_TOKEN permissions to create the release
+    permissions:
+      contents: write 
+    
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -60,8 +64,9 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
-          # Use 'yes' to handle any prompts
+          # Use 'yes' to handle any prompts (like SDK licenses)
           yes | buildozer -v android debug
+          
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         if: success()

@@ -1,4 +1,17 @@
-# src/main.py - Chat App with REAL Reticulum Messaging!
+# create_clean_files.py - Creates clean Python files automatically
+import os
+
+BASE_DIR = r"F:\simple-sideband\src"
+
+# Create __init__.py files
+for subdir in ["", "networking", "utils"]:
+    path = os.path.join(BASE_DIR, subdir, "__init__.py") if subdir else os.path.join(BASE_DIR, "__init__.py")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("")
+    print(f"Created: {path}")
+
+# Create main.py
+main_py = '''# src/main.py - Chat App with REAL Reticulum Messaging!
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
@@ -20,7 +33,7 @@ import tempfile
 
 
 class ChatBubble(BoxLayout):
-    def __init__(self, text, is_sent=True, source="", **kwargs):
+    def __init__(self, text, is_sent=True, source=""):
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.size_hint_y = None
@@ -55,7 +68,7 @@ class ChatBubble(BoxLayout):
 
 
 class ImageBubble(BoxLayout):
-    def __init__(self, image_path, is_sent=True, source="", filename="image.jpg", **kwargs):
+    def __init__(self, image_path, is_sent=True, source="", filename="image.jpg"):
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.size_hint_y = None
@@ -284,3 +297,201 @@ class SimpleChatApp(App):
 
 if __name__ == "__main__":
     SimpleChatApp().run()
+'''
+
+with open(os.path.join(BASE_DIR, "main.py"), "w", encoding="utf-8") as f:
+    f.write(main_py)
+print("Created: main.py")
+
+# Create lxmf_client.py
+lxmf_py = '''# src/networking/lxmf_client.py
+import LXMF
+import RNS
+from typing import Callable, Optional
+
+class Message:
+    def __init__(self, timestamp, source_hash, content, is_image=False):
+        self.timestamp = timestamp
+        self.source_hash = source_hash
+        self.content = content
+        self.is_image = is_image
+
+class LXMFClient:
+    def __init__(self, lxmf_router):
+        self.router = lxmf_router
+        self.destination = None
+        self.on_message_received = None
+        self.router.register_delivery_callback(self._handle_incoming)
+    
+    def create_destination(self, app_name="SimpleSideband"):
+        try:
+            print("Creating destination for: " + app_name)
+            self.destination = self.router.register_delivery_destination(
+                app_name=app_name,
+                app_data=b"v1.0"
+            )
+            if self.destination:
+                address = self.destination.hash.hex()
+                print("Destination created! Address: " + address)
+                return address
+            else:
+                print("Failed to create destination")
+                return None
+        except Exception as e:
+            print("Error creating destination: " + str(e))
+            return self.router.identity.hash.hex()
+    
+    def send_text(self, destination_address, text):
+        if not self.destination:
+            print("Error: Destination not created yet!")
+            return False
+        if len(destination_address) != 32:
+            print("Invalid destination address length")
+            return False
+        try:
+            print("Sending to " + destination_address[:8] + "...")
+            target_bytes = bytes.fromhex(destination_address)
+            message = LXMF.LXMessage(
+                destination=self.destination,
+                target=target_bytes,
+                content=text.encode("utf-8"),
+                fields=LXMF.LXMessage.TEXT_FIELD
+            )
+            message.register_delivery_callback(self._on_delivery_status)
+            self.router.handle_outbound(message)
+            return True
+        except Exception as e:
+            print("Error sending message: " + str(e))
+            return False
+    
+    def _handle_incoming(self, message):
+        try:
+            if isinstance(message.content, bytes):
+                text = message.content.decode("utf-8")
+            else:
+                text = str(message.content)
+            msg = Message(
+                timestamp=message.timestamp,
+                source_hash=message.source_hash.hex()[:8],
+                content=text,
+                is_image=text.startswith("IMAGE:")
+            )
+            if self.on_message_received:
+                print("Received from " + msg.source_hash)
+                self.on_message_received(msg)
+        except Exception as e:
+            print("Error processing message: " + str(e))
+    
+    def _on_delivery_status(self, message, status):
+        if status == LXMF.LXMessage.DELIVERED:
+            print("Message delivered!")
+        elif status == LXMF.LXMessage.FAILED:
+            print("Message delivery failed")
+        elif status == LXMF.LXMessage.PENDING:
+            print("Message pending delivery...")
+    
+    def send_image(self, destination_address, image_path):
+        if not self.destination:
+            print("Error: Destination not created yet!")
+            return False
+        from utils.image_handler import compress_and_encode_image
+        encoded_data, metadata = compress_and_encode_image(image_path)
+        if not encoded_data:
+            print("Failed to process image")
+            return False
+        message_content = "IMAGE:" + metadata["filename"] + ":" + encoded_data
+        if len(destination_address) != 32:
+            print("Invalid destination address length")
+            return False
+        try:
+            print("Sending image...")
+            target_bytes = bytes.fromhex(destination_address)
+            message = LXMF.LXMessage(
+                destination=self.destination,
+                target=target_bytes,
+                content=message_content.encode("utf-8"),
+                fields=LXMF.LXMessage.TEXT_FIELD
+            )
+            message.register_delivery_callback(self._on_delivery_status)
+            self.router.handle_outbound(message)
+            return True
+        except Exception as e:
+            print("Error sending image: " + str(e))
+            return False
+    
+    def set_message_callback(self, callback_function):
+        self.on_message_received = callback_function
+'''
+
+with open(os.path.join(BASE_DIR, "networking", "lxmf_client.py"), "w", encoding="utf-8") as f:
+    f.write(lxmf_py)
+print("Created: networking/lxmf_client.py")
+
+# Create image_handler.py
+image_py = '''# src/utils/image_handler.py
+import base64
+from PIL import Image
+from io import BytesIO
+import os
+
+def compress_and_encode_image(image_path, max_size_kb=200, quality=75, max_dimension=800):
+    try:
+        img = Image.open(image_path)
+        if img.mode in ("RGBA", "P", "LA"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+            img = background
+        if max(img.size) > max_dimension:
+            ratio = max_dimension / max(img.size)
+            new_size = tuple(int(dim * ratio) for dim in img.size)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        current_quality = quality
+        while current_quality > 10:
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=current_quality, optimize=True)
+            size_kb = buffer.tell() / 1024
+            if size_kb <= max_size_kb:
+                break
+            current_quality -= 10
+        buffer.seek(0)
+        encoded = base64.b64encode(buffer.read()).decode("ascii")
+        metadata = {
+            "filename": os.path.basename(image_path),
+            "original_size": os.path.getsize(image_path),
+            "compressed_size": len(encoded),
+            "dimensions": img.size,
+            "quality_used": current_quality
+        }
+        print("Image compressed successfully")
+        return encoded, metadata
+    except Exception as e:
+        print("Error processing image: " + str(e))
+        return None, None
+
+def decode_and_save_image(encoded_data, output_path):
+    try:
+        image_data = base64.b64decode(encoded_data)
+        with open(output_path, "wb") as f:
+            f.write(image_data)
+        print("Image saved: " + output_path)
+        return True
+    except Exception as e:
+        print("Error saving image: " + str(e))
+        return False
+'''
+
+with open(os.path.join(BASE_DIR, "utils", "image_handler.py"), "w", encoding="utf-8") as f:
+    f.write(image_py)
+print("Created: utils/image_handler.py")
+
+print("")
+print("=" * 50)
+print("ALL FILES CREATED SUCCESSFULLY!")
+print("=" * 50)
+print("")
+print("Next steps:")
+print("1. cd F:\\simple-sideband\\src")
+print("2. python -m py_compile main.py")
+print("3. python main.py")

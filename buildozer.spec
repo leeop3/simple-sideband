@@ -16,7 +16,7 @@ android.ndk = 25b
 android.ndk_path =
 android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
-android.recipes = cryptography,pillow,sqlite3,libffi
+android.recipes = cryptography,pillow,sqlite3,libffi,bz2
 android.add_aars = 
 android.extra_gradle_repositories = 
 [buildozer]

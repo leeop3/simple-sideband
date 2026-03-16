@@ -28,7 +28,13 @@ jobs:
             build-essential autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
             libjpeg-dev libpng-dev
-      
+      - name: Free Disk Space
+       run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - name: Install Buildozer
         run: |
           pip install --upgrade pip

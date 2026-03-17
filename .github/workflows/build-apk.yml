@@ -39,15 +39,12 @@ jobs:
           pip install --upgrade pip setuptools wheel
           pip install "buildozer>=1.5.0" "cython<3.0"
 
-      # ✅ NEW: Use a dedicated NDK action (Faster & cleaner than manual wget)
       - name: Setup Android NDK r25b
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: r25b
 
-      # ✅ IMPROVED CACHING: Cache the entire .buildozer folder (except the large 'app' build artifacts)
-      # This preserves the SDK, NDK, and compiled recipes between runs.
       - name: Buildozer Cache
         uses: actions/cache@v4
         with:
@@ -57,33 +54,38 @@ jobs:
           key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
-     - name: Pre-accept SDK Licenses
+
+      - name: Pre-accept SDK Licenses
         run: |
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
           echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-arm-dpts-license
 
-      # ✅ BUILD: Use environment variables instead of 'sed' injection
       - name: Build APK
         env:
-          # Use the Java home provided by the setup-java action
           JAVA_HOME: ${{ env.JAVA_HOME }}
-          # Tell Buildozer exactly where the NDK and SDK are
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          # Linker fix for Rust-based requirements (like cryptography)
+          # Linker fix for Rust-based requirements
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
         run: |
-          # Create the directory structure Buildozer expects
+          # 1. Create the platform directory
           mkdir -p ~/.buildozer/android/platform/
           
-          # Symlink the NDK so Buildozer doesn't try to download its own
+          # 2. Fix the "rr25b" error by forcing the NDK path in buildozer.spec
+          # This ensures Buildozer uses the NDK we downloaded and skips the download attempt.
+          sed -i "s|^#\? \?android.ndk_path =.*|android.ndk_path = ${{ steps.setup-ndk.outputs.ndk-path }}|" buildozer.spec
+          
+          # 3. Ensure the NDK version in spec doesn't have the 'r' prefix if Buildozer is acting up
+          sed -i "s|^android.ndk =.*|android.ndk = 25b|" buildozer.spec
+
+          # 4. Symlink as a backup so Buildozer definitely finds it
           if [ ! -d ~/.buildozer/android/platform/android-ndk-r25b ]; then
             ln -s ${{ steps.setup-ndk.outputs.ndk-path }} ~/.buildozer/android/platform/android-ndk-r25b
           fi
 
-          # Build
-        | buildozer -v android debug
+          # 5. Run build
+          yes | buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

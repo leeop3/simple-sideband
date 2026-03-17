@@ -75,11 +75,10 @@ jobs:
             "build-tools;33.0.2"
 
           # Wrapper at legacy path so Buildozer's sdkmanager calls work
+          # (printf avoids heredoc YAML escaping issues)
           mkdir -p "$SDK_DIR/tools/bin"
-          cat > "$SDK_DIR/tools/bin/sdkmanager" << WRAPPER
-#!/bin/bash
-exec "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_DIR" "\$@"
-WRAPPER
+          printf '#!/bin/bash\nexec "%s/cmdline-tools/latest/bin/sdkmanager" --sdk_root="%s" "$@"\n' \
+            "$SDK_DIR" "$SDK_DIR" > "$SDK_DIR/tools/bin/sdkmanager"
           chmod +x "$SDK_DIR/tools/bin/sdkmanager"
           echo "SDK ready: $(ls $SDK_DIR)"
 

@@ -114,11 +114,6 @@ jobs:
           printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
             > "$SDK_DIR/licenses/android-sdk-license"
 
-      - name: Clear stale p4a clone (force re-clone with pinned version)
-        run: |
-          rm -rf ~/.buildozer/android/platform/python-for-android
-          rm -rf .buildozer/android/platform/python-for-android
-
       - name: Restore Buildozer packages cache
         uses: actions/cache/restore@v4
         with:
@@ -126,6 +121,32 @@ jobs:
           key: ${{ runner.os }}-buildozer-packages-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-packages-
+
+      - name: Patch pyjnius for Python 3 + Cython 3 compatibility
+        # pyjnius recipe uses 'long' (Python 2 builtin) which Cython 3 rejects.
+        # Buildozer clones p4a during build, so we must patch AFTER first run starts
+        # p4a clone, OR pre-clone it ourselves and patch before buildozer runs.
+        run: |
+          P4A_DIR=".buildozer/android/platform/python-for-android"
+
+          # Pre-clone p4a so we can patch it before buildozer uses it
+          mkdir -p "$(dirname $P4A_DIR)"
+          if [ ! -d "$P4A_DIR" ]; then
+            git clone -b master --single-branch --depth 1               https://github.com/kivy/python-for-android.git "$P4A_DIR"
+          fi
+
+          # Find and patch jnius_utils.pxi — replace Python 2 'long' with 'int'
+          JNIUS_PXI=$(find "$P4A_DIR" -name "jnius_utils.pxi" 2>/dev/null | head -1)
+          if [ -n "$JNIUS_PXI" ]; then
+            echo "Patching: $JNIUS_PXI"
+            sed -i 's/isinstance(arg, long)/isinstance(arg, int)/g' "$JNIUS_PXI"
+            sed -i 's/(isinstance(arg, long) and/(isinstance(arg, int) and/g' "$JNIUS_PXI"
+            grep -n "long\|int" "$JNIUS_PXI" | grep -i "isinstance" || true
+            echo "Patch applied."
+          else
+            echo "WARNING: jnius_utils.pxi not found in p4a clone"
+            find "$P4A_DIR" -name "*.pxi" | head -10
+          fi
 
       - name: Build APK
         run: buildozer -v android debug

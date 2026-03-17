@@ -30,9 +30,6 @@ android.add_aars =
 android.extra_gradle_repositories =
 android.gradle_dependencies = androidx.core:core-ktx:1.9.0
 
-# Pin p4a to a stable release with pyjnius compatible with Python 3 + Cython 3.
-# p4a master pyjnius recipe uses long (Python 2 type) which Cython 3 rejects.
-android.p4a_url = https://github.com/kivy/python-for-android/archive/refs/tags/v2024.01.21.zip
 
 [buildozer]
 log_level = 2

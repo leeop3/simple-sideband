@@ -37,20 +37,59 @@ jobs:
           pip install buildozer==1.5.0 cython==0.29.37
           pip install urllib3 requests --upgrade
 
-      - name: Set up Android NDK r25b
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r25b
-          add-to-path: true
+      - name: Patch Buildozer NDK URL (fix double-r typo)
+        # Buildozer 1.5.0 still has a typo: android-ndk-rr25b instead of r25b.
+        # Patch the installed source directly so no download is attempted with the bad URL.
+        run: |
+          ANDROID_PY=$(python -c "import buildozer.targets.android as m; print(m.__file__)")
+          echo "Patching: $ANDROID_PY"
+          # Show the bad line so we can confirm it exists
+          grep -n "rr25b\|ndk.*linux\.zip" "$ANDROID_PY" || echo "Pattern not found - may already be fixed"
+          # Replace the double-r URL
+          sed -i 's|android-ndk-rr25b-linux\.zip|android-ndk-r25b-linux.zip|g' "$ANDROID_PY"
+          sed -i 's|android-ndk-rr25b|android-ndk-r25b|g' "$ANDROID_PY"
+          echo "Patch applied. Verifying:"
+          grep -n "r25b" "$ANDROID_PY"
+
+      - name: Pre-download Android NDK r25b
+        # Download the NDK directly into the exact path Buildozer expects,
+        # so it detects it as already present and skips its own download entirely.
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+
+          NDK_ZIP="android-ndk-r25b-linux.zip"
+          NDK_DIR="android-ndk-r25b"
+
+          if [ -d "$NDK_DIR" ]; then
+            echo "NDK directory already exists, skipping download."
+          else
+            echo "Downloading Android NDK r25b..."
+            wget -q --show-progress --tries=3 --timeout=120 \
+              -O "$NDK_ZIP" \
+              "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
+
+            FILE_SIZE=$(stat -c%s "$NDK_ZIP")
+            echo "Downloaded ${FILE_SIZE} bytes"
+            if [ "$FILE_SIZE" -lt 100000000 ]; then
+              echo "ERROR: Download appears incomplete (< 100MB)"
+              exit 1
+            fi
+
+            echo "Extracting NDK..."
+            unzip -q "$NDK_ZIP"
+            rm "$NDK_ZIP"
+            echo "NDK extracted to: $(pwd)/$NDK_DIR"
+          fi
 
       - name: Cache Buildozer platform directory
         uses: actions/cache@v4
         with:
           path: |
             ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/android-ndk-r25b
             ~/.buildozer/android/platform/apache-ant-1.9.4
-          key: ${{ runner.os }}-buildozer-platform-v1
+          key: ${{ runner.os }}-buildozer-platform-v2
           restore-keys: |
             ${{ runner.os }}-buildozer-platform-
 
@@ -62,33 +101,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-packages-
 
-      - name: Configure Buildozer to use pre-installed NDK
-        run: |
-          mkdir -p ~/.buildozer/android/platform
-          # Symlink the NDK installed by nttld/setup-ndk so Buildozer finds it
-          ln -sfn "$ANDROID_NDK_HOME" ~/.buildozer/android/platform/android-ndk-r25b
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-
       - name: Accept Android licenses
         run: |
           mkdir -p ~/.android
           echo "count=0" > ~/.android/repositories.cfg
-          # Licenses are accepted after SDK is bootstrapped by Buildozer's first run;
-          # pre-seed the license hashes to avoid interactive prompts.
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" \
+          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
             > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" \
-            >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" \
-            >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
 
       - name: Build APK
-        run: |
-          buildozer -v android debug
+        run: buildozer -v android debug
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
 

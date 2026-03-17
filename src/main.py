@@ -145,7 +145,7 @@ class SimpleChatApp(App):
                 activity = PythonActivity.getInstance()
                 
                 if activity:
-                    RNODE_ADDRESS = "XX:XX:XX:XX:XX:XX" # Replace with your MAC
+                    RNODE_ADDRESS = "F0:24:F9:B4:FB:6E" # Replace with your MAC
                     if activity.connectRNode(RNODE_ADDRESS):
                         print(f"Connected to RNode {RNODE_ADDRESS}")
                         # Ensure your reticulum_manager.py has this method!

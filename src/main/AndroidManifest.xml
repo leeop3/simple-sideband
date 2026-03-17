@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="org.yourname.simplesideband"
+    package="org.simplesideband.simplesideband"
     android:versionCode="1"
     android:versionName="0.2.0">
 
@@ -11,13 +11,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     
-    <!-- Location Permissions (Required for BLE scanning on Android 12+) -->
+    <!-- Location Permissions (Required for BLE scanning) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     
     <!-- Storage Permissions -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> <!-- API 33 requirement -->
     
     <!-- Network Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -36,26 +37,30 @@
     <application
         android:label="SimpleSideband"
         android:icon="@mipmap/icon"
-        android:theme="@android:style/Theme.NoTitleBar"
-        android:configChanges="orientation|keyboardHidden|screenSize"
-        android:allowBackup="true"
-        android:fullBackupContent="true">
+        android:allowBackup="true">
         
         <activity
-            android:name=".PythonActivity"
+            android:name="org.simplesideband.simplesideband.PythonActivity"
             android:label="SimpleSideband"
             android:launchMode="singleTask"
             android:configChanges="orientation|keyboardHidden|screenSize"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- CRITICAL: Kivy Metadata (The app won't start Python without these) -->
+            <meta-data android:name="python.root" android:value="." />
+            <meta-data android:name="python.main" android:value="main.pyc" />
+            <meta-data android:name="python.path" android:value="." />
+            <meta-data android:name="python.version" android:value="3" />
         </activity>
         
         <!-- Bluetooth Service -->
         <service
-            android:name=".BluetoothService"
+            android:name="org.simplesideband.simplesideband.BluetoothService"
             android:enabled="true"
             android:exported="false" />
             

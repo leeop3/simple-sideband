@@ -9,6 +9,9 @@ package.name = simplesideband
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.simplesideband
 
+# (str) Custom Android Manifest to use
+android.manifest = src/AndroidManifest.xml
+
 # (str) Source code where the main.py live
 source.dir = src
 

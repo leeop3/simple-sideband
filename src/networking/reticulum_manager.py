@@ -6,10 +6,17 @@ from pathlib import Path
 
 class ReticulumManager:
     def __init__(self, config_path=None):
+        # If no path provided, check if environment variable was set by main.py
+        if config_path is None:
+            config_path = os.environ.get("RNS_DATA_DIR")
+        
+        # Fallback for desktop/default
         if config_path is None:
             config_path = str(Path.home() / ".simple_sideband")
+            
         os.makedirs(config_path, exist_ok=True)
-        print("Initializing Reticulum...")
+        print(f"Initializing Reticulum with config: {config_path}")
+        
         self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_VERBOSE)
         self.identity = self._load_or_create_identity(config_path)
         self.lxmf_router = LXMF.LXMRouter(identity=self.identity, storagepath=os.path.join(config_path, "lxmf"))
@@ -31,8 +38,8 @@ class ReticulumManager:
     
     def add_tcp_interface(self, host, port):
         try:
-            from RNS.Transport import TCPClientInterface
-            print("Connecting to " + host + ":" + str(port) + "...")
+            from RNS.Interfaces.TCPInterface import TCPClientInterface
+            print(f"Connecting to {host}:{port}...")
             interface = TCPClientInterface(self.rns, host, port)
             self.rns.add_interface(interface)
             print("TCP interface added!")
@@ -44,3 +51,12 @@ class ReticulumManager:
     def shutdown(self):
         print("Shutting down Reticulum...")
         self.rns.shutdown()
+
+# --- ADD THIS FUNCTION BELOW ---
+def create_manager_with_tcp(host, port):
+    """
+    Helper function expected by main.py
+    """
+    manager = ReticulumManager()
+    manager.add_tcp_interface(host, port)
+    return manager

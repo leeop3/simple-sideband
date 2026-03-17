@@ -43,47 +43,43 @@ jobs:
             ~/.buildozer/android/platform/android-sdk
             ~/.buildozer/android/platform/android-ndk
             ~/.buildozer/android/platform/apache-ant
-          key: ${{ runner.os }}-android-sdk-ndk-v4
+          key: ${{ runner.os }}-android-sdk-ndk-v5
           restore-keys: |
             ${{ runner.os }}-android-sdk-ndk-
       
-      - name: Pre-download Android NDK (FIXED URL)
+      - name: Pre-download Android NDK (FIXED)
         run: |
           mkdir -p ~/.buildozer/android/platform/android-ndk
           cd ~/.buildozer/android/platform/android-ndk
           
-          # ✅ Use the short-form URL that Google maintains
+          # ✅ CORRECT URL (single 'r', not 'rr')
           NDK_URL="https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
           NDK_FILE="android-ndk-r25b-linux.zip"
           NDK_FOLDER="android-ndk-r25b"
           
-          # Check if already downloaded and valid
           if [ -f "$NDK_FILE" ] && [ $(stat -c%s "$NDK_FILE" 2>/dev/null) -gt 100000000 ]; then
-            echo "✅ NDK already downloaded and valid"
+            echo "✅ NDK already downloaded"
           else
             echo "🔄 Downloading Android NDK r25b..."
-            # Use wget with retries and proper headers
-            wget --no-verbose --tries=3 --waitretry=5 \
+            # Use wget with proper retry and headers for Google
+            wget --no-verbose --tries=5 --waitretry=10 --timeout=60 \
               --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
               -O "$NDK_FILE" "$NDK_URL"
             
-            # Verify download succeeded
-            FILE_SIZE=$(stat -c%s "$NDK_FILE" 2>/dev/null)
-            echo "Downloaded file size: $FILE_SIZE bytes"
+            FILE_SIZE=$(stat -c%s "$NDK_FILE" 2>/dev/null || echo 0)
+            echo "Downloaded: $FILE_SIZE bytes"
             
             if [ "$FILE_SIZE" -lt 100000000 ]; then
-              echo "❌ Download failed - file too small"
+              echo "❌ Download failed"
               exit 1
             fi
           fi
           
-          # Extract if needed
           if [ ! -d "$NDK_FOLDER" ]; then
-            echo "📦 Extracting Android NDK..."
+            echo "📦 Extracting..."
             unzip -q "$NDK_FILE"
           fi
-          
-          echo "✅ NDK ready: $NDK_FOLDER"
+          echo "✅ NDK ready"
       
       - name: Accept Android licenses
         run: |
@@ -91,36 +87,23 @@ jobs:
           echo "count=0" > ~/.android/repositories.cfg
           yes | sdkmanager --licenses 2>/dev/null || true
       
-      - name: Build APK with Buildozer
+      - name: Build APK
         run: |
-          # ✅ Use NDK version that matches the downloaded folder
           export P4A_RELEASE_ANDROID_NDK=r25b
           export DOWNLOAD_TIMEOUT=300
-          
-          # Clean problematic build artifacts
           rm -rf .buildozer/android/platform/build*/build/ 2>/dev/null || true
-          
-          # Build with verbose output
           buildozer -v android debug
         env:
           BUILDODEZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
       
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
           name: simplesideband-apk
           path: bin/*.apk
           retention-days: 30
-      
-      - name: Create Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: bin/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload logs on failure
         if: failure()

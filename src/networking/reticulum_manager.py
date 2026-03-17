@@ -8,28 +8,15 @@ class ReticulumManager:
     def __init__(self, config_path=None):
         if config_path is None:
             config_path = str(Path.home() / ".simple_sideband")
-        
         os.makedirs(config_path, exist_ok=True)
-        
         print("Initializing Reticulum...")
-        
-        self.rns = RNS.Reticulum(
-            configdir=config_path,
-            loglevel=RNS.LOG_VERBOSE
-        )
-        
+        self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_VERBOSE)
         self.identity = self._load_or_create_identity(config_path)
-        
-        self.lxmf_router = LXMF.LXMRouter(
-            identity=self.identity,
-            storagepath=os.path.join(config_path, "lxmf")
-        )
-        
+        self.lxmf_router = LXMF.LXMRouter(identity=self.identity, storagepath=os.path.join(config_path, "lxmf"))
         print("Reticulum ready! My address: " + self.get_address_hex())
     
     def _load_or_create_identity(self, config_path):
         identity_file = os.path.join(config_path, "identity")
-        
         if os.path.exists(identity_file):
             print("Loading saved identity...")
             return RNS.Identity.from_file(identity_file)

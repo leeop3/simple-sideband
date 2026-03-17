@@ -2,7 +2,7 @@
 title = SimpleSideband
 package.name = simplesideband
 package.domain = org.simplesideband
-source.dir = .
+source.dir = src
 source.include_exts = py,png,jpg,kv,atlas,json,db
 source.exclude_exts = spec
 source.exclude_dirs = venv,.venv,tests,__pycache__,.git,.buildozer,bin

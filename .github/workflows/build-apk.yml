@@ -14,20 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ✅ Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ✅ Java 17 (CRITICAL FIX)
-      - name: Set up Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
-      # ✅ System dependencies
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -37,107 +34,59 @@ jobs:
             libjpeg-dev libpng-dev libbz2-dev \
             wget curl unzip git
 
-      # ✅ Python deps (FIXED CYTHON)
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install buildozer==1.5.0 "cython<3.0"
-          pip install urllib3 requests --upgrade
+          pip install "buildozer>=1.5.0" "cython<3.0"
 
-      # ✅ NDK r25b
-      - name: Download Android NDK r25b
-        run: |
-          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
-          mkdir -p "$HOME/.buildozer/android/platform"
-          wget -q --show-progress \
-            -O /tmp/ndk.zip \
-            "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
-          unzip -q /tmp/ndk.zip -d "$HOME/.buildozer/android/platform"
-          rm /tmp/ndk.zip
-
-      # ✅ Android SDK
-      - name: Install Android SDK
-        run: |
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR/cmdline-tools"
-
-          wget -q \
-            -O /tmp/cmdline-tools.zip \
-            "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
-
-          unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
-          mv /tmp/ct/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
-          rm /tmp/cmdline-tools.zip
-
-          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
-
-          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses || true
-
-          "$SDKMANAGER" --sdk_root="$SDK_DIR" \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
-
-      # ✅ Inject paths into buildozer.spec
-      - name: Inject SDK and NDK paths
-        run: |
-          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-
-          sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec || \
-          sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
-
-          sed -i "s|^android.sdk_path.*|android.sdk_path = ${SDK_DIR}|" buildozer.spec || \
-          sed -i "s|^android.api = 33|android.sdk_path = ${SDK_DIR}\nandroid.api = 33|" buildozer.spec
-
-      # ✅ Accept licenses
-      - name: Pre-seed Android SDK licenses
-        run: |
-          mkdir -p ~/.android
-          echo "count=0" > ~/.android/repositories.cfg
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR/licenses"
-          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\n" \
-            > "$SDK_DIR/licenses/android-sdk-license"
-
-      # ✅ Cache
-      - name: Restore Buildozer cache
-        uses: actions/cache/restore@v4
+      # ✅ NEW: Use a dedicated NDK action (Faster & cleaner than manual wget)
+      - name: Setup Android NDK r25b
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
-          path: ~/.buildozer/android/packages
+          ndk-version: r25b
+
+      # ✅ IMPROVED CACHING: Cache the entire .buildozer folder (except the large 'app' build artifacts)
+      # This preserves the SDK, NDK, and compiled recipes between runs.
+      - name: Buildozer Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            !~/.buildozer/android/platform/build-*
           key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # 🚀 BUILD (CLEANED + FIXED)
+      # ✅ BUILD: Use environment variables instead of 'sed' injection
       - name: Build APK
-        run: |
-          unset GRADLE_HOME
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          yes | buildozer -v android debug
         env:
-          BUILDOZER_DEBUG: 1
-          PYTHONUNBUFFERED: 1
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx4g"
+          # Use the Java home provided by the setup-java action
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          # Tell Buildozer exactly where the NDK and SDK are
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          # Linker fix for Rust-based requirements (like cryptography)
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
+        run: |
+          # Create the directory structure Buildozer expects
+          mkdir -p ~/.buildozer/android/platform/
+          
+          # Symlink the NDK so Buildozer doesn't try to download its own
+          if [ ! -d ~/.buildozer/android/platform/android-ndk-r25b ]; then
+            ln -s ${{ steps.setup-ndk.outputs.ndk-path }} ~/.buildozer/android/platform/android-ndk-r25b
+          fi
 
-      # ✅ Save cache
-      - name: Save Buildozer cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: ~/.buildozer/android/packages
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+          # Build
+          yes | buildozer -v android debug
 
-      # ✅ Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: app-apk
           path: bin/*.apk
           retention-days: 30
 
-      # ✅ Upload logs if fail
       - name: Upload logs on failure
         uses: actions/upload-artifact@v4
         if: failure()

@@ -24,7 +24,7 @@ android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
 
 # Recipes: sqlite3 removed (not a p4a recipe); bz2 kept for libbz2 support
-android.recipes = cryptography, pillow, sqlite3, openssl, libbz2
+android.recipes = cryptography, pillow, sqlite3, openssl, libbz2, bz2, pyjnius
 
 android.add_aars =
 android.extra_gradle_repositories =

@@ -1,4 +1,4 @@
-# src/main.py - SimpleSideband Chat App (Fixed Version)
+# src/main.py - SimpleSideband Chat App (CLEAN VERSION)
 import os
 import tempfile
 from kivy.app import App
@@ -14,29 +14,66 @@ from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserIconView
 from kivy.utils import platform
 
-# --- ANDROID PATH FIXES (Consolidated - Run Once) ---
+# Android path fixes (BEFORE importing RNS)
 if platform == 'android':
-    from android.storage import app_storage_path
-    settings_path = app_storage_path()
-    
-    # Fix Kivy icon permission error
-    os.environ['KIVY_HOME'] = os.path.join(settings_path, '.kivy')
-    if not os.path.exists(os.environ['KIVY_HOME']):
-        os.makedirs(os.environ['KIVY_HOME'])
-    
-    # Fix Reticulum data directory
-    os.environ["RNS_DATA_DIR"] = os.path.join(settings_path, ".reticulum")
-    if not os.environ["RNS_DATA_DIR"] in os.environ:
-        os.makedirs(os.environ["RNS_DATA_DIR"], exist_ok=True)
+    try:
+        from android.storage import app_storage_path
+        settings_path = app_storage_path()
+        os.environ['KIVY_HOME'] = os.path.join(settings_path, '.kivy')
+        os.environ["RNS_DATA_DIR"] = os.path.join(settings_path, ".reticulum")
+        if not os.path.exists(os.environ["RNS_DATA_DIR"]):
+            os.makedirs(os.environ["RNS_DATA_DIR"], exist_ok=True)
+    except ImportError:
+        pass
 
-# --- IMPORTS (After path fixes) ---
-from networking.reticulum_manager import ReticulumManager, create_manager_with_tcp
+# Now import Reticulum
+from networking.reticulum_manager import ReticulumManager
 from networking.lxmf_client import LXMFClient, Message
 from utils.image_handler import decode_and_save_image
 
+# In SimpleChatApp.build(), after creating ret_manager:
+
+# Try Classic BT first (RNode), then TCP fallback
+bt_success = False
+
+if platform == 'android':
+    try:
+        from jnius import autoclass
+        
+        # Get PythonActivity instance
+        PythonActivity = autoclass('org.yourname.simplesideband.PythonActivity')
+        activity = PythonActivity.getInstance()
+        
+        if activity:
+            # Replace with your actual RNode MAC address
+            RNODE_ADDRESS = "XX:XX:XX:XX:XX:XX"
+            
+            # Connect via PythonActivity bridge
+            if activity.connectRNode(RNODE_ADDRESS):
+                print("Connected to RNode at " + RNODE_ADDRESS)
+                bt_success = self.ret_manager.add_rnode_classic_bt_interface(
+                    activity.getBluetoothService(),
+                    RNODE_ADDRESS
+                )
+            else:
+                print("Failed to connect to RNode")
+        else:
+            print("PythonActivity instance not available")
+            
+    except Exception as e:
+        print("BT setup error: " + str(e))
+
+# Only try TCP if BT failed
+if not bt_success:
+    print("BT not available, trying TCP fallback...")
+    try:
+        self.ret_manager.add_tcp_interface("reticulum.meshchat.org", 4242)
+    except Exception as e:
+        print("TCP fallback skipped: " + str(e))
+
 
 class ChatBubble(BoxLayout):
-    def __init__(self, text, is_sent=True, source="", **kwargs):
+    def __init__(self, text, is_sent=True, **kwargs):
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.size_hint_y = None
@@ -56,7 +93,6 @@ class ChatBubble(BoxLayout):
             color=(1, 1, 1, 1)
         )
         
-        # ✅ FIXED: Single canvas setup (no binding overhead)
         with bubble.canvas.before:
             if is_sent:
                 Color(0.2, 0.5, 0.9, 0.95)
@@ -72,7 +108,7 @@ class ChatBubble(BoxLayout):
 
 
 class ImageBubble(BoxLayout):
-    def __init__(self, image_path, is_sent=True, source="", filename="image.jpg", **kwargs):
+    def __init__(self, image_path, is_sent=True, filename="image.jpg", **kwargs):
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.size_hint_y = None
@@ -81,7 +117,6 @@ class ImageBubble(BoxLayout):
         
         from kivy.uix.image import AsyncImage
         
-        # Filename label
         self.add_widget(Label(
             text=filename,
             size_hint_y=None,
@@ -90,7 +125,6 @@ class ImageBubble(BoxLayout):
             color=(0.8, 0.8, 0.8, 1)
         ))
         
-        # Image with background
         img = AsyncImage(
             source=image_path,
             size_hint_y=None,
@@ -114,12 +148,10 @@ class ChatScreen(BoxLayout):
         self.orientation = "vertical"
         self.padding = [10, 10, 10, 10]
         self.spacing = 5
-
-        # Only set window size on desktop
+        
         if platform not in ['android', 'ios']:
             Window.size = (450, 650)
-
-        # Header
+        
         header_text = "Simple Chat - My Address: " + my_address[:16] + "..."
         header = Label(
             text=header_text,
@@ -133,8 +165,7 @@ class ChatScreen(BoxLayout):
             Color(0.1, 0.2, 0.1, 1)
             Rectangle(pos=header.pos, size=header.size)
         self.add_widget(header)
-
-        # Chat area
+        
         self.chat_scroll = ScrollView()
         self.messages_box = BoxLayout(
             orientation="vertical",
@@ -145,8 +176,7 @@ class ChatScreen(BoxLayout):
         self.messages_box.bind(minimum_height=self.messages_box.setter("height"))
         self.chat_scroll.add_widget(self.messages_box)
         self.add_widget(self.chat_scroll)
-
-        # Destination input
+        
         self.dest_input = TextInput(
             hint_text="Destination LXMF address...",
             multiline=False,
@@ -155,8 +185,7 @@ class ChatScreen(BoxLayout):
             font_size="10sp"
         )
         self.add_widget(self.dest_input)
-
-        # Input row
+        
         input_row = BoxLayout(size_hint_y=None, height=50, spacing=5)
         self.msg_input = TextInput(
             hint_text="Type message...",
@@ -178,25 +207,24 @@ class ChatScreen(BoxLayout):
             background_color=(0.2, 0.7, 0.2, 1)
         )
         send_btn.bind(on_press=self.on_send_text)
-
+        
         input_row.add_widget(self.msg_input)
         input_row.add_widget(img_btn)
         input_row.add_widget(send_btn)
         self.add_widget(input_row)
         
-        # Welcome message
         self.add_message("Welcome! Send text or images!", is_sent=False)
-
+    
     def add_message(self, text, is_sent=True):
         bubble = ChatBubble(text=text, is_sent=is_sent)
         self.messages_box.add_widget(bubble)
         Clock.schedule_once(lambda dt: self.chat_scroll.scroll_to(bubble), 0.1)
-
+    
     def add_image(self, image_path, is_sent=True, filename="image.jpg"):
         bubble = ImageBubble(image_path=image_path, is_sent=is_sent, filename=filename)
         self.messages_box.add_widget(bubble)
         Clock.schedule_once(lambda dt: self.chat_scroll.scroll_to(bubble), 0.1)
-
+    
     def on_send_text(self, instance):
         destination = self.dest_input.text.strip()
         text = self.msg_input.text.strip()
@@ -208,9 +236,8 @@ class ChatScreen(BoxLayout):
             self.lxmf.send_text(destination, text)
         except Exception as e:
             self.add_message("Send failed: " + str(e), is_sent=False)
-
+    
     def open_image_picker(self, instance):
-        # Fix: Default path for Android
         initial_path = "/sdcard/Pictures" if platform == 'android' else os.path.expanduser("~")
         
         content = BoxLayout(orientation="vertical")
@@ -229,10 +256,10 @@ class ChatScreen(BoxLayout):
         btn_row.add_widget(select_btn)
         content.add_widget(file_chooser)
         content.add_widget(btn_row)
-
+        
         self.popup = Popup(title="Select Image", content=content, size_hint=(0.9, 0.9))
         self.popup.open()
-
+    
     def send_selected_image(self, selection):
         self.popup.dismiss()
         if not selection:
@@ -247,30 +274,23 @@ class ChatScreen(BoxLayout):
             self.lxmf.send_image(destination, image_path)
         except Exception as e:
             self.add_message("Image send failed: " + str(e), is_sent=False)
-
+    
     def handle_incoming_message(self, message):
         Clock.schedule_once(lambda dt: self._add_incoming(message), 0)
-
+    
     def _add_incoming(self, message):
-        """✅ FIXED: Actually decode and display incoming images"""
         prefix = "[" + message.source_hash[:8] + "] "
-        
         if message.is_image:
             try:
-                # Parse IMAGE:filename:base64data format
                 parts = message.content.split(":", 2)
                 if len(parts) == 3:
                     filename = parts[1]
                     encoded_data = parts[2]
-                    
-                    # Save to temp file and display
-                    temp_path = os.path.join(tempfile.gettempdir(), f"msg_{message.timestamp}.jpg")
+                    temp_path = os.path.join(tempfile.gettempdir(), "msg_" + str(message.timestamp) + ".jpg")
                     if decode_and_save_image(encoded_data, temp_path):
                         self.add_image(temp_path, is_sent=False, filename=prefix + filename)
                     else:
                         self.add_message(prefix + "Image decode failed", is_sent=False)
-                else:
-                    self.add_message(prefix + "Invalid image format", is_sent=False)
             except Exception as e:
                 self.add_message(prefix + "Image error: " + str(e), is_sent=False)
         else:
@@ -281,7 +301,7 @@ class SimpleChatApp(App):
     def build(self):
         self.title = "SimpleSideband"
         
-        # ✅ FIXED: Request permissions in build() after app init
+        # Android permissions
         if platform == 'android':
             try:
                 from android.permissions import request_permissions, Permission
@@ -298,28 +318,26 @@ class SimpleChatApp(App):
                     Permission.ACCESS_COARSE_LOCATION
                 ])
             except ImportError:
-                pass  # Not on Android
-
-        # Initialize Reticulum with fallback
+                pass
+        
+        # Initialize Reticulum (TCP fallback only for now)
+        self.ret_manager = ReticulumManager()
+        
         try:
-            self.ret_manager = create_manager_with_tcp("reticulum.meshchat.org", 4242)
+            self.ret_manager.add_tcp_interface("reticulum.meshchat.org", 4242)
         except Exception as e:
-            print("TCP connection failed: " + str(e))
-            print("Falling back to local Reticulum...")
-            self.ret_manager = ReticulumManager()
-
-        # Initialize LXMF
+            print("TCP connection skipped: " + str(e))
+        
         self.lxmf = LXMFClient(self.ret_manager.lxmf_router)
         my_address = self.lxmf.create_destination()
         if not my_address:
             my_address = self.ret_manager.get_address_hex()
-
-        # Create UI
+        
         self.chat_screen = ChatScreen(self.lxmf, my_address)
         self.lxmf.set_message_callback(self.chat_screen.handle_incoming_message)
-
+        
         return self.chat_screen
-
+    
     def on_stop(self):
         if hasattr(self, "ret_manager"):
             self.ret_manager.shutdown()

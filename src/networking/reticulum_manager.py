@@ -1,5 +1,5 @@
 # src/networking/reticulum_manager.py
-# Clean version with RNode BLE support + proper structure
+# Clean version with Classic Bluetooth (RFCOMM) support for RNode
 
 import RNS
 import LXMF
@@ -22,13 +22,17 @@ class ReticulumManager:
         
         self.rns = RNS.Reticulum(
             configdir=config_path,
-            loglevel=RNS.LOG_VERBOSE
+            loglevel=RNS.LOG_VERBOSE,
+            instance_name="simplesideband"
         )
+        
         self.identity = self._load_or_create_identity(config_path)
+        
         self.lxmf_router = LXMF.LXMRouter(
             identity=self.identity,
             storagepath=os.path.join(config_path, "lxmf")
         )
+        
         print("Reticulum ready! My address: " + self.get_address_hex())
     
     def _load_or_create_identity(self, config_path):
@@ -46,6 +50,7 @@ class ReticulumManager:
         return self.identity.hash.hex()
     
     def add_tcp_interface(self, host, port):
+        """Add TCP interface with error handling (won't crash app)"""
         try:
             from RNS.Transport import TCPClientInterface
             print("Connecting to " + host + ":" + str(port) + "...")
@@ -54,11 +59,42 @@ class ReticulumManager:
             print("TCP interface added!")
             return True
         except Exception as e:
+            # Log error but don't crash - app can still work with BT only
             print("Could not add TCP interface: " + str(e))
             return False
     
+    def add_rnode_classic_bt_interface(self, bt_service, device_address):
+        """
+        Add RNode via Classic Bluetooth (RFCOMM/SPP)
+        This uses PyJNIus to bridge to your Kotlin BluetoothService
+        """
+        try:
+            from utils.bt_wrapper import AndroidBTInterface
+            print("Adding RNode Classic BT interface for " + device_address + "...")
+            
+            interface = AndroidBTInterface(
+                owner=self,
+                name="RNode-BT-" + device_address[:8],
+                bt_service=bt_service  # Kotlin service via PyJNIus
+            )
+            
+            if interface.attach(self.rns):
+                self.rns.add_interface(interface)
+                print("RNode Classic BT interface added!")
+                return True
+            else:
+                print("Failed to attach BT interface")
+                return False
+                
+        except Exception as e:
+            print("Could not add RNode Classic BT: " + str(e))
+            return False
+    
     def add_rnode_ble_interface(self, device_name=None, device_address=None):
-        """Add RNode over Bluetooth LE (Android)"""
+        """
+        Add RNode over Bluetooth LE (Android)
+        Note: Most RNode firmware uses Classic BT, not BLE
+        """
         try:
             from RNS.Interfaces import BLEInterface
             print("Adding RNode BLE interface...")
@@ -73,15 +109,15 @@ class ReticulumManager:
                 interface = BLEInterface(self.rns)
             
             self.rns.add_interface(interface)
-            print("✅ RNode BLE interface added!")
+            print("RNode BLE interface added!")
             return True
             
         except ImportError:
-            print("⚠️ BLEInterface not available in this RNS version")
+            print("BLEInterface not available in this RNS version")
             return False
         except Exception as e:
-            print("⚠️ Could not add RNode BLE: " + str(e))
-            print("💡 Make sure: 1) RNode is paired, 2) Location permission granted")
+            print("Could not add RNode BLE: " + str(e))
+            print("Make sure: 1) RNode is paired, 2) Location permission granted")
             return False
     
     def get_interface_status(self):

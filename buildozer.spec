@@ -5,6 +5,8 @@ package.domain = org.simplesideband
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json,db
 source.exclude_exts = spec
+source.exclude_dirs = venv,.venv,tests,__pycache__,.git,.buildozer,bin
+source.exclude_patterns = license,images/originals/*
 version = 0.2.0
 
 # Requirements: sqlite3 removed (built into Python, not a valid p4a recipe)

@@ -3,7 +3,6 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
@@ -37,17 +36,48 @@ jobs:
           pip install buildozer==1.5.0 cython==0.29.37
           pip install urllib3 requests --upgrade
 
-      # ----------------------------------------------------------------
-      # Restore caches BEFORE any platform work so Buildozer sees them
-      # ----------------------------------------------------------------
-      - name: Restore Buildozer platform cache
+      # Download NDK FIRST — before any cache restore that might overwrite it
+      - name: Download Android NDK r25b
+        run: |
+          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
+          mkdir -p "$HOME/.buildozer/android/platform"
+          echo "Downloading NDK r25b..."
+          wget -q --show-progress --tries=3 --timeout=300 \
+            -O /tmp/ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
+          SIZE=$(stat -c%s /tmp/ndk.zip)
+          echo "Downloaded: $SIZE bytes"
+          if [ "$SIZE" -lt 100000000 ]; then
+            echo "ERROR: NDK download too small"
+            exit 1
+          fi
+          unzip -q /tmp/ndk.zip -d "$HOME/.buildozer/android/platform"
+          rm /tmp/ndk.zip
+          echo "NDK extracted to: $NDK_DIR"
+          ls "$NDK_DIR" | head -5
+
+      # Tell buildozer.spec where the NDK lives via env var so it never tries to download
+      - name: Set NDK path in buildozer.spec
+        run: |
+          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
+          # Inject android.ndk_path if not already present
+          if grep -q "^android.ndk_path" buildozer.spec; then
+            sed -i "s|^android.ndk_path.*|android.ndk_path = $NDK_DIR|" buildozer.spec
+          else
+            echo "android.ndk_path = $NDK_DIR" >> buildozer.spec
+          fi
+          echo "buildozer.spec ndk_path line:"
+          grep "ndk" buildozer.spec
+
+      - name: Restore Buildozer platform cache (SDK + ANT only)
         uses: actions/cache/restore@v4
-        id: cache-platform
         with:
-          path: ~/.buildozer/android/platform
-          key: ${{ runner.os }}-buildozer-platform-v3
+          path: |
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/apache-ant-1.9.4
+          key: ${{ runner.os }}-buildozer-sdk-ant-v1
           restore-keys: |
-            ${{ runner.os }}-buildozer-platform-
+            ${{ runner.os }}-buildozer-sdk-ant-
 
       - name: Restore Buildozer packages cache
         uses: actions/cache/restore@v4
@@ -57,69 +87,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-packages-
 
-      # ----------------------------------------------------------------
-      # Fix the NDK — patch URL typo AND pre-download into expected path
-      # ----------------------------------------------------------------
-      - name: Fix Buildozer NDK typo and pre-download NDK
-        run: |
-          # 1. Find and patch the Buildozer android target file
-          ANDROID_PY=$(python -c "
-          import buildozer.targets.android as m
-          print(m.__file__)
-          ")
-          echo "Buildozer android target: $ANDROID_PY"
-
-          # Show current bad line
-          echo "--- Before patch ---"
-          grep -n "rr25b\|NDK_VERSION\|ndk.*zip" "$ANDROID_PY" || true
-
-          # Patch all occurrences of the double-r typo
-          python3 - "$ANDROID_PY" << 'PYEOF'
-          import sys
-          path = sys.argv[1]
-          with open(path, 'r') as f:
-              content = f.read()
-          fixed = content.replace('android-ndk-rr25b', 'android-ndk-r25b')
-          with open(path, 'w') as f:
-              f.write(fixed)
-          print("Patched successfully")
-          PYEOF
-
-          # Verify patch
-          echo "--- After patch ---"
-          grep -n "r25b\|ndk.*zip" "$ANDROID_PY" || true
-
-          # 2. Pre-download the NDK into the exact directory Buildozer checks
-          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
-          if [ -d "$NDK_DIR" ]; then
-            echo "NDK already present at $NDK_DIR — skipping download"
-          else
-            echo "Downloading Android NDK r25b..."
-            mkdir -p "$HOME/.buildozer/android/platform"
-            wget -q --show-progress --tries=3 --timeout=120 \
-              -O "/tmp/android-ndk-r25b-linux.zip" \
-              "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
-
-            SIZE=$(stat -c%s /tmp/android-ndk-r25b-linux.zip)
-            echo "Downloaded: $SIZE bytes"
-            if [ "$SIZE" -lt 100000000 ]; then
-              echo "ERROR: Download too small, likely failed"
-              exit 1
-            fi
-
-            echo "Extracting NDK..."
-            unzip -q /tmp/android-ndk-r25b-linux.zip \
-              -d "$HOME/.buildozer/android/platform"
-            rm /tmp/android-ndk-r25b-linux.zip
-            echo "NDK ready at: $NDK_DIR"
-          fi
-
-          # Final confirmation
-          ls -la "$HOME/.buildozer/android/platform/"
-
-      # ----------------------------------------------------------------
-      # Accept SDK licenses (pre-seed for when SDK bootstraps)
-      # ----------------------------------------------------------------
       - name: Pre-seed Android SDK licenses
         run: |
           mkdir -p ~/.android
@@ -128,24 +95,20 @@ jobs:
           printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
             > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
 
-      # ----------------------------------------------------------------
-      # Build
-      # ----------------------------------------------------------------
       - name: Build APK
         run: buildozer -v android debug
         env:
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
 
-      # ----------------------------------------------------------------
-      # Save caches AFTER build so next run is faster
-      # ----------------------------------------------------------------
       - name: Save Buildozer platform cache
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: ~/.buildozer/android/platform
-          key: ${{ runner.os }}-buildozer-platform-v3
+          path: |
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/apache-ant-1.9.4
+          key: ${{ runner.os }}-buildozer-sdk-ant-v1
 
       - name: Save Buildozer packages cache
         uses: actions/cache/save@v4
@@ -154,9 +117,6 @@ jobs:
           path: ~/.buildozer/android/packages
           key: ${{ runner.os }}-buildozer-packages-${{ hashFiles('buildozer.spec') }}
 
-      # ----------------------------------------------------------------
-      # Artifacts
-      # ----------------------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         if: success()

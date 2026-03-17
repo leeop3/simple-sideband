@@ -18,6 +18,8 @@ android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE
 android.api = 33
 android.minapi = 27
 android.ndk = r25b
+# Path set by CI — Buildozer will use this and skip its own download
+android.ndk_path = %(HOME)s/.buildozer/android/platform/android-ndk-r25b
 android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
 

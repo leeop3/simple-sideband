@@ -33,7 +33,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install buildozer==1.5.0 cython==0.29.37
+          pip install buildozer==1.5.0 "cython>=3.0,<4.0"
           pip install urllib3 requests --upgrade
 
       - name: Download Android NDK r25b
@@ -127,6 +127,8 @@ jobs:
         env:
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
+          # Kivy 2.3.0 requires Cython 3.x to generate .c files from .pyx
+          CYTHON: cython
 
       - name: Save Buildozer packages cache
         uses: actions/cache/save@v4

@@ -33,7 +33,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install buildozer==1.5.0 "cython>=3.0,<4.0"
+          pip install buildozer==1.5.0 "cython==0.29.37"
           pip install urllib3 requests --upgrade
 
       - name: Download Android NDK r25b
@@ -122,34 +122,37 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-packages-
 
-      - name: Patch pyjnius for Python 3 + Cython 3 compatibility
-        # pyjnius recipe uses 'long' (Python 2 builtin) which Cython 3 rejects.
-        # Buildozer clones p4a during build, so we must patch AFTER first run starts
-        # p4a clone, OR pre-clone it ourselves and patch before buildozer runs.
+      - name: Build APK
         run: |
+          # Run buildozer — it will fail on pyjnius first time if pyjnius
+          # source hasn't been extracted yet. We run it, let it extract,
+          # then patch and re-run. Use a wrapper approach instead:
+          # Patch pyjnius recipe in p4a to use a newer tagged version before build.
           P4A_DIR=".buildozer/android/platform/python-for-android"
+          mkdir -p "$P4A_DIR"
 
-          # Pre-clone p4a so we can patch it before buildozer uses it
-          mkdir -p "$(dirname $P4A_DIR)"
-          if [ ! -d "$P4A_DIR" ]; then
+          # Clone p4a ourselves so buildozer skips re-cloning
+          if [ ! -d "$P4A_DIR/.git" ]; then
             git clone -b master --single-branch --depth 1               https://github.com/kivy/python-for-android.git "$P4A_DIR"
           fi
 
-          # Find and patch jnius_utils.pxi — replace Python 2 'long' with 'int'
-          JNIUS_PXI=$(find "$P4A_DIR" -name "jnius_utils.pxi" 2>/dev/null | head -1)
-          if [ -n "$JNIUS_PXI" ]; then
-            echo "Patching: $JNIUS_PXI"
-            sed -i 's/isinstance(arg, long)/isinstance(arg, int)/g' "$JNIUS_PXI"
-            sed -i 's/(isinstance(arg, long) and/(isinstance(arg, int) and/g' "$JNIUS_PXI"
-            grep -n "long\|int" "$JNIUS_PXI" | grep -i "isinstance" || true
-            echo "Patch applied."
+          # Patch pyjnius recipe to use a version that supports Python 3
+          JNIUS_RECIPE="$P4A_DIR/pythonforandroid/recipes/pyjnius/__init__.py"
+          if [ -f "$JNIUS_RECIPE" ]; then
+            echo "Current pyjnius recipe version:"
+            grep -i "version\|url\|sha512" "$JNIUS_RECIPE" | head -5
+            # Point to pyjnius 1.6.1 which has Python 3 + Cython 3 support
+            sed -i "s/version = .*/version = '1.6.1'/" "$JNIUS_RECIPE"
+            # Clear hash so p4a re-downloads
+            sed -i "/sha512sum/d" "$JNIUS_RECIPE"
+            echo "Patched pyjnius recipe to 1.6.1"
+            grep -i "version\|url" "$JNIUS_RECIPE" | head -5
           else
-            echo "WARNING: jnius_utils.pxi not found in p4a clone"
-            find "$P4A_DIR" -name "*.pxi" | head -10
+            echo "ERROR: pyjnius recipe not found at $JNIUS_RECIPE"
+            ls "$P4A_DIR/pythonforandroid/recipes/" | grep -i jnius || true
           fi
 
-      - name: Build APK
-        run: buildozer -v android debug
+          buildozer -v android debug
         env:
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1

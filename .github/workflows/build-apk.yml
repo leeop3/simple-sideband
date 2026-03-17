@@ -69,34 +69,51 @@ jobs:
       - name: Install Android SDK and sdkmanager
         run: |
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-
-          # Buildozer 1.5.0 downloads commandlinetools-linux-6514223 and unpacks it
-          # into $SDK_DIR/ — it then looks for sdkmanager at tools/bin/sdkmanager.
-          # We pre-install the SDK here using the SAME zip Buildozer would download,
-          # so it sees the SDK as already present and skips its own install.
           mkdir -p "$SDK_DIR"
-          echo "Downloading Android command-line tools (same version Buildozer uses)..."
+
+          # Use newer cmdline-tools (9477386) — the old 6514223 version crashes with Java 17.
+          # We install to cmdline-tools/latest/ (correct layout), then create the legacy
+          # tools/bin/sdkmanager symlink that Buildozer 1.5.0 looks for.
+          echo "Downloading Android command-line tools..."
           wget -q --tries=3 --timeout=120 \
-            -O "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" \
-            "https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip"
+            -O /tmp/cmdline-tools.zip \
+            "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
+          rm /tmp/cmdline-tools.zip
+          mkdir -p "$SDK_DIR/cmdline-tools"
+          mv /tmp/ct/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
 
-          # Unpack exactly as Buildozer does
-          unzip -q "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" -d "$SDK_DIR"
+          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
 
-          # The zip extracts to $SDK_DIR/tools/; sdkmanager lands at tools/bin/sdkmanager
-          SDKMANAGER="$SDK_DIR/tools/bin/sdkmanager"
-          echo "sdkmanager: $($SDKMANAGER --version)"
+          # New cmdline-tools requires --sdk_root when run from outside the SDK
+          export ANDROID_SDK_ROOT="$SDK_DIR"
+          echo "sdkmanager version: $($SDKMANAGER --sdk_root=$SDK_DIR --version)"
 
-          # Accept all licenses non-interactively
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          # Accept licenses
+          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
 
-          # Install required platform and build tools
-          "$SDKMANAGER" \
+          # Install required components
+          "$SDKMANAGER" --sdk_root="$SDK_DIR" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-          echo "SDK ready at $SDK_DIR"
+          # Buildozer 1.5.0 looks for sdkmanager at tools/bin/sdkmanager (legacy path)
+          mkdir -p "$SDK_DIR/tools/bin"
+          # Wrapper script instead of symlink so --sdk_root is always passed
+          cat > "$SDK_DIR/tools/bin/sdkmanager" << WRAPPER
+          #!/bin/bash
+          exec "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_DIR" "\$@"
+          WRAPPER
+          chmod +x "$SDK_DIR/tools/bin/sdkmanager"
+
+          # Also pre-download the old zip file so Buildozer's SDK-present check passes
+          # (it checks for the zip file existence before deciding SDK is installed)
+          wget -q --tries=3 --timeout=120 \
+            -O "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip"
+
+          echo "SDK ready:"
           ls "$SDK_DIR"
 
       - name: Pre-seed Android SDK licenses

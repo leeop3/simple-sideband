@@ -54,38 +54,50 @@ jobs:
           rm /tmp/ndk.zip
           echo "NDK ready: $(ls $NDK_DIR | head -3)"
 
+      - name: Inject NDK path into buildozer.spec
+        run: |
+          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
+          # Use literal path (no env var interpolation — configparser rejects %(HOME)s)
+          if grep -q "^android.ndk_path" buildozer.spec; then
+            sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec
+          else
+            sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
+          fi
+          echo "Verified:"
+          grep "ndk" buildozer.spec
+
       - name: Install Android SDK and sdkmanager
         run: |
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR/cmdline-tools"
 
-          echo "Downloading Android command-line tools..."
+          # Buildozer 1.5.0 downloads commandlinetools-linux-6514223 and unpacks it
+          # into $SDK_DIR/ — it then looks for sdkmanager at tools/bin/sdkmanager.
+          # We pre-install the SDK here using the SAME zip Buildozer would download,
+          # so it sees the SDK as already present and skips its own install.
+          mkdir -p "$SDK_DIR"
+          echo "Downloading Android command-line tools (same version Buildozer uses)..."
           wget -q --tries=3 --timeout=120 \
-            -O /tmp/cmdline-tools.zip \
-            "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+            -O "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip"
 
-          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extracted
-          rm /tmp/cmdline-tools.zip
+          # Unpack exactly as Buildozer does
+          unzip -q "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" -d "$SDK_DIR"
 
-          # Google packages cmdline-tools inside a 'cmdline-tools' subfolder;
-          # sdkmanager requires it to be at cmdline-tools/latest/
-          mv /tmp/cmdline-tools-extracted/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
+          # The zip extracts to $SDK_DIR/tools/; sdkmanager lands at tools/bin/sdkmanager
+          SDKMANAGER="$SDK_DIR/tools/bin/sdkmanager"
+          echo "sdkmanager: $($SDKMANAGER --version)"
 
-          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
-          echo "sdkmanager path: $SDKMANAGER"
-          "$SDKMANAGER" --version
-
-          # Accept licenses and install required SDK components
+          # Accept all licenses non-interactively
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+
+          # Install required platform and build tools
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-          # Buildozer looks for sdkmanager at tools/bin/sdkmanager — create compat symlink
-          mkdir -p "$SDK_DIR/tools/bin"
-          ln -sf "$SDKMANAGER" "$SDK_DIR/tools/bin/sdkmanager"
-          echo "Symlink created: $SDK_DIR/tools/bin/sdkmanager"
+          echo "SDK ready at $SDK_DIR"
+          ls "$SDK_DIR"
 
       - name: Pre-seed Android SDK licenses
         run: |

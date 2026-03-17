@@ -36,7 +36,6 @@ jobs:
           pip install buildozer==1.5.0 cython==0.29.37
           pip install urllib3 requests --upgrade
 
-      # Download NDK FIRST — before any cache restore that might overwrite it
       - name: Download Android NDK r25b
         run: |
           NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
@@ -53,31 +52,49 @@ jobs:
           fi
           unzip -q /tmp/ndk.zip -d "$HOME/.buildozer/android/platform"
           rm /tmp/ndk.zip
-          echo "NDK extracted to: $NDK_DIR"
-          ls "$NDK_DIR" | head -5
+          echo "NDK ready: $(ls $NDK_DIR | head -3)"
 
-      # Tell buildozer.spec where the NDK lives via env var so it never tries to download
-      - name: Set NDK path in buildozer.spec
+      - name: Install Android SDK and sdkmanager
         run: |
-          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
-          # Inject android.ndk_path if not already present
-          if grep -q "^android.ndk_path" buildozer.spec; then
-            sed -i "s|^android.ndk_path.*|android.ndk_path = $NDK_DIR|" buildozer.spec
-          else
-            echo "android.ndk_path = $NDK_DIR" >> buildozer.spec
-          fi
-          echo "buildozer.spec ndk_path line:"
-          grep "ndk" buildozer.spec
+          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
+          mkdir -p "$SDK_DIR/cmdline-tools"
 
-      - name: Restore Buildozer platform cache (SDK + ANT only)
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.buildozer/android/platform/android-sdk
-            ~/.buildozer/android/platform/apache-ant-1.9.4
-          key: ${{ runner.os }}-buildozer-sdk-ant-v1
-          restore-keys: |
-            ${{ runner.os }}-buildozer-sdk-ant-
+          echo "Downloading Android command-line tools..."
+          wget -q --tries=3 --timeout=120 \
+            -O /tmp/cmdline-tools.zip \
+            "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extracted
+          rm /tmp/cmdline-tools.zip
+
+          # Google packages cmdline-tools inside a 'cmdline-tools' subfolder;
+          # sdkmanager requires it to be at cmdline-tools/latest/
+          mv /tmp/cmdline-tools-extracted/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
+
+          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          echo "sdkmanager path: $SDKMANAGER"
+          "$SDKMANAGER" --version
+
+          # Accept licenses and install required SDK components
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
+
+          # Buildozer looks for sdkmanager at tools/bin/sdkmanager — create compat symlink
+          mkdir -p "$SDK_DIR/tools/bin"
+          ln -sf "$SDKMANAGER" "$SDK_DIR/tools/bin/sdkmanager"
+          echo "Symlink created: $SDK_DIR/tools/bin/sdkmanager"
+
+      - name: Pre-seed Android SDK licenses
+        run: |
+          mkdir -p ~/.android
+          echo "count=0" > ~/.android/repositories.cfg
+          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
+          mkdir -p "$SDK_DIR/licenses"
+          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
+            > "$SDK_DIR/licenses/android-sdk-license"
 
       - name: Restore Buildozer packages cache
         uses: actions/cache/restore@v4
@@ -87,28 +104,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-packages-
 
-      - name: Pre-seed Android SDK licenses
-        run: |
-          mkdir -p ~/.android
-          echo "count=0" > ~/.android/repositories.cfg
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
-            > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-
       - name: Build APK
         run: buildozer -v android debug
         env:
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
-
-      - name: Save Buildozer platform cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: |
-            ~/.buildozer/android/platform/android-sdk
-            ~/.buildozer/android/platform/apache-ant-1.9.4
-          key: ${{ runner.os }}-buildozer-sdk-ant-v1
 
       - name: Save Buildozer packages cache
         uses: actions/cache/save@v4

@@ -1,43 +1,111 @@
-      - name: Setup Android SDK & Fix SDK Manager
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Install system dependencies
         run: |
-          # 1. Define paths
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR/cmdline-tools"
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
+            libjpeg-dev libpng-dev libbz2-dev \
+            wget curl unzip git
+      
+      - name: Install Buildozer & Cython
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install "buildozer>=1.5.0" "cython<3.0"
+          pip install urllib3 requests --upgrade
 
-          # 2. Download modern Command Line Tools
-          wget -q -O /tmp/cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
-          unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
-          
-          # 3. Buildozer/p4a expects the tools in a specific structure
-          mv /tmp/ct/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
-          
-          # 4. CRITICAL FIX: Create a symlink so Buildozer finds it in the legacy 'tools' path
-          ln -s "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
-          
-          # 5. Pre-accept licenses
-          mkdir -p "$SDK_DIR/licenses"
-          echo -e "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451e1f06d25163b11954135e830f0\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$SDK_DIR/licenses/android-sdk-license"
+      - name: Setup Android NDK r25b
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25b
 
+      - name: Buildozer Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            !~/.buildozer/android/platform/build-*
+          key: ${{ runner.os }}-buildozer-v1-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-v1-
+
+      - name: Pre-accept SDK Licenses
+        run: |
+          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-arm-dpts-license
+      
       - name: Build APK
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          # Fix for Rust-based requirements
+          # Fix for Rust-based requirements (like cryptography)
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
         run: |
-          # Ensure platform dir exists
+          # 1. Ensure platform directory exists
           mkdir -p ~/.buildozer/android/platform/
           
-          # Force buildozer.spec to use the correct paths
+          # 2. Inject NDK path and fix the "rr25b" bug in buildozer.spec
           sed -i "s|^#\? \?android.ndk_path =.*|android.ndk_path = ${{ steps.setup-ndk.outputs.ndk-path }}|" buildozer.spec
-          sed -i "s|^#\? \?android.sdk_path =.*|android.sdk_path = $HOME/.buildozer/android/platform/android-sdk|" buildozer.spec
           sed -i "s|^android.ndk =.*|android.ndk = 25b|" buildozer.spec
-
-          # Symlink NDK
+          
+          # 3. Symlink for legacy compatibility
           if [ ! -d ~/.buildozer/android/platform/android-ndk-r25b ]; then
             ln -sf ${{ steps.setup-ndk.outputs.ndk-path }} ~/.buildozer/android/platform/android-ndk-r25b
           fi
 
-          # Run build (using --auto-accept-sdk-license for Buildozer 1.5.0+)
-          buildozer -v android debug
+          # 4. Run build
+          buildozer -v android debug 2>&1 | tee build.log
+          
+          # Check exit code of Buildozer (not tee)
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Build failed!"
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: simplesideband-apk
+          path: bin/*.apk
+          retention-days: 30
+      
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-log
+          path: |
+            build.log
+            .buildozer/logs/
+          retention-days: 7

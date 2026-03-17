@@ -52,69 +52,59 @@ jobs:
           fi
           unzip -q /tmp/ndk.zip -d "$HOME/.buildozer/android/platform"
           rm /tmp/ndk.zip
-          echo "NDK ready: $(ls $NDK_DIR | head -3)"
+          ls "$NDK_DIR" | head -3
 
-      - name: Inject NDK path into buildozer.spec
-        run: |
-          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
-          # Use literal path (no env var interpolation — configparser rejects %(HOME)s)
-          if grep -q "^android.ndk_path" buildozer.spec; then
-            sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec
-          else
-            sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
-          fi
-          echo "Verified:"
-          grep "ndk" buildozer.spec
-
-      - name: Install Android SDK and sdkmanager
+      - name: Install Android SDK
         run: |
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR"
+          mkdir -p "$SDK_DIR/cmdline-tools"
 
-          # Use newer cmdline-tools (9477386) — the old 6514223 version crashes with Java 17.
-          # We install to cmdline-tools/latest/ (correct layout), then create the legacy
-          # tools/bin/sdkmanager symlink that Buildozer 1.5.0 looks for.
           echo "Downloading Android command-line tools..."
           wget -q --tries=3 --timeout=120 \
             -O /tmp/cmdline-tools.zip \
             "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
           unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
           rm /tmp/cmdline-tools.zip
-          mkdir -p "$SDK_DIR/cmdline-tools"
           mv /tmp/ct/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
 
           SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
-
-          # New cmdline-tools requires --sdk_root when run from outside the SDK
-          export ANDROID_SDK_ROOT="$SDK_DIR"
-          echo "sdkmanager version: $($SDKMANAGER --sdk_root=$SDK_DIR --version)"
-
-          # Accept licenses
           yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
-
-          # Install required components
           "$SDKMANAGER" --sdk_root="$SDK_DIR" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-          # Buildozer 1.5.0 looks for sdkmanager at tools/bin/sdkmanager (legacy path)
+          # Wrapper at legacy path so Buildozer's sdkmanager calls work
           mkdir -p "$SDK_DIR/tools/bin"
-          # Wrapper script instead of symlink so --sdk_root is always passed
           cat > "$SDK_DIR/tools/bin/sdkmanager" << WRAPPER
-          #!/bin/bash
-          exec "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_DIR" "\$@"
-          WRAPPER
+#!/bin/bash
+exec "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_DIR" "\$@"
+WRAPPER
           chmod +x "$SDK_DIR/tools/bin/sdkmanager"
+          echo "SDK ready: $(ls $SDK_DIR)"
 
-          # Also pre-download the old zip file so Buildozer's SDK-present check passes
-          # (it checks for the zip file existence before deciding SDK is installed)
-          wget -q --tries=3 --timeout=120 \
-            -O "$SDK_DIR/commandlinetools-linux-6514223_latest.zip" \
-            "https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip"
+      - name: Inject SDK and NDK paths into buildozer.spec
+        # Inject literal expanded paths — configparser rejects %(HOME)s interpolation
+        run: |
+          NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
+          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
 
-          echo "SDK ready:"
-          ls "$SDK_DIR"
+          # NDK path
+          if grep -q "^android.ndk_path" buildozer.spec; then
+            sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec
+          else
+            sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
+          fi
+
+          # SDK path — this is the key fix: tells Buildozer to use our SDK and skip download
+          if grep -q "^android.sdk_path" buildozer.spec; then
+            sed -i "s|^android.sdk_path.*|android.sdk_path = ${SDK_DIR}|" buildozer.spec
+          else
+            sed -i "s|^android.api = 33|android.sdk_path = ${SDK_DIR}\nandroid.api = 33|" buildozer.spec
+          fi
+
+          echo "Verified spec paths:"
+          grep -E "ndk|sdk" buildozer.spec
 
       - name: Pre-seed Android SDK licenses
         run: |

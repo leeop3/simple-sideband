@@ -1,5 +1,5 @@
 // RNSBridge.kt - Bridge Kotlin Bluetooth to Python RNS
-package org.yourname.simplesideband
+package org.simplesideband.simplesideband
 
 import android.util.Log
 import org.kivy.android.PythonActivity

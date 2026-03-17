@@ -1,5 +1,5 @@
 // BluetoothService.kt - Classic Bluetooth (RFCOMM/SPP) for RNode
-package org.yourname.simplesideband
+package org.simplesideband.simplesideband
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothSocket

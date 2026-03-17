@@ -1,7 +1,7 @@
 // PythonActivity.java - With Bluetooth Service Integration
 // Package MUST match your app: org.yourname.simplesideband
 
-package org.yourname.simplesideband;
+package org.simplesideband.simplesideband;
 
 import android.os.Bundle;
 import android.util.Log;

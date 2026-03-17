@@ -13,6 +13,21 @@ from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserIconView
 from kivy.utils import platform
 
+# --- FIX FOR KIVY ICON PERMISSION ERROR ---
+if platform == 'android':
+    from android.storage import app_storage_path
+    # Redirect Kivy's internal data to a writable private folder
+    os.environ['KIVY_HOME'] = os.path.join(app_storage_path(), '.kivy')
+    if not os.path.exists(os.environ['KIVY_HOME']):
+        os.makedirs(os.environ['KIVY_HOME'])
+
+# --- RETICULUM PATH FIX ---
+if platform == 'android':
+    # (The code we added earlier for RNS_DATA_DIR...)
+    os.environ["RNS_DATA_DIR"] = os.path.join(app_storage_path(), ".reticulum")
+
+
+
 # --- CRITICAL ANDROID PATH FIX ---
 if platform == 'android':
     from android.storage import app_storage_path

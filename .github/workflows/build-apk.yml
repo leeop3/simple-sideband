@@ -48,34 +48,29 @@ jobs:
 
       - name: Manual Android SDK Install
         run: |
-          # Define absolute path
-          export SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+          SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
           mkdir -p $SDK_ROOT/cmdline-tools
-          
-          # Download
           wget -q -O /tmp/cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
           unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
-          
-          # 1. Place it in 'latest' (Modern standard)
           mv /tmp/ct/cmdline-tools $SDK_ROOT/cmdline-tools/latest
-          
-          # 2. ALSO link it to 'tools' (Buildozer legacy standard)
-          # We link the bin folder directly into a 'tools' structure to be safe
           mkdir -p $SDK_ROOT/tools
           ln -s $SDK_ROOT/cmdline-tools/latest/bin $SDK_ROOT/tools/bin
           ln -s $SDK_ROOT/cmdline-tools/latest/lib $SDK_ROOT/tools/lib
           ln -s $SDK_ROOT/cmdline-tools/latest/source.properties $SDK_ROOT/tools/source.properties
-          
-          # 3. Ensure executable
           chmod +x $SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
-          
-          # 4. Pre-accept licenses
           mkdir -p $SDK_ROOT/licenses
           echo -e "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451e1f06d25163b11954135e830f0\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > $SDK_ROOT/licenses/android-sdk-license
-          
-          # DEBUG: Show us the path to verify it exists
-          echo "Verifying sdkmanager location:"
-          ls -l $SDK_ROOT/tools/bin/sdkmanager
+
+      # ✅ NEW CACHE STEP (v2 Master Reset)
+      - name: Buildozer Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            !~/.buildozer/android/platform/build-*
+          key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-v2-
 
       - name: Build APK
         env:
@@ -83,22 +78,20 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
-          # Fix for Rust-based requirements
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
         run: |
-          # Force the spec file to point to our manually prepared folders
-          # Use absolute paths beginning with /home/runner/
+          # Force buildozer.spec paths
           sed -i "s|^#\? \?android.ndk_path =.*|android.ndk_path = ${{ steps.setup-ndk.outputs.ndk-path }}|" buildozer.spec
           sed -i "s|^#\? \?android.sdk_path =.*|android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|" buildozer.spec
           sed -i "s|^android.ndk =.*|android.ndk = 25b|" buildozer.spec
           
-          # Symlink NDK into the home buildozer path just in case
+          # Symlink NDK
           mkdir -p ~/.buildozer/android/platform/
           if [ ! -d ~/.buildozer/android/platform/android-ndk-r25b ]; then
             ln -sf ${{ steps.setup-ndk.outputs.ndk-path }} ~/.buildozer/android/platform/android-ndk-r25b
           fi
 
-          # Build
+          # Build with high verbosity to catch issues
           buildozer -v android debug 2>&1 | tee build.log
           
           if [ ${PIPESTATUS[0]} -ne 0 ]; then

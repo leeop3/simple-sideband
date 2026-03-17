@@ -8,164 +8,127 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 120
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ✅ Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # ✅ Java 17 (CRITICAL FIX)
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # ✅ System dependencies
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            openjdk-17-jdk \
-            python3-pip python3-setuptools python3-wheel \
             build-essential autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
             libjpeg-dev libpng-dev libbz2-dev \
             wget curl unzip git
 
+      # ✅ Python deps (FIXED CYTHON)
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install buildozer==1.5.0 "cython==0.29.37"
+          pip install buildozer==1.5.0 "cython<3.0"
           pip install urllib3 requests --upgrade
 
+      # ✅ NDK r25b
       - name: Download Android NDK r25b
         run: |
           NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
           mkdir -p "$HOME/.buildozer/android/platform"
-          echo "Downloading NDK r25b..."
-          wget -q --show-progress --tries=3 --timeout=300 \
+          wget -q --show-progress \
             -O /tmp/ndk.zip \
             "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
-          SIZE=$(stat -c%s /tmp/ndk.zip)
-          echo "Downloaded: $SIZE bytes"
-          if [ "$SIZE" -lt 100000000 ]; then
-            echo "ERROR: NDK download too small"
-            exit 1
-          fi
           unzip -q /tmp/ndk.zip -d "$HOME/.buildozer/android/platform"
           rm /tmp/ndk.zip
-          ls "$NDK_DIR" | head -3
 
+      # ✅ Android SDK
       - name: Install Android SDK
         run: |
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$SDK_DIR/cmdline-tools"
 
-          echo "Downloading Android command-line tools..."
-          wget -q --tries=3 --timeout=120 \
+          wget -q \
             -O /tmp/cmdline-tools.zip \
             "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+
           unzip -q /tmp/cmdline-tools.zip -d /tmp/ct
-          rm /tmp/cmdline-tools.zip
           mv /tmp/ct/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
+          rm /tmp/cmdline-tools.zip
 
           SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
+
+          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses || true
+
           "$SDKMANAGER" --sdk_root="$SDK_DIR" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-          # Wrapper at legacy path so Buildozer's sdkmanager calls work
-          # (printf avoids heredoc YAML escaping issues)
-          mkdir -p "$SDK_DIR/tools/bin"
-          printf '#!/bin/bash\nexec "%s/cmdline-tools/latest/bin/sdkmanager" --sdk_root="%s" "$@"\n' \
-            "$SDK_DIR" "$SDK_DIR" > "$SDK_DIR/tools/bin/sdkmanager"
-          chmod +x "$SDK_DIR/tools/bin/sdkmanager"
-          echo "SDK ready: $(ls $SDK_DIR)"
-
-      - name: Inject SDK and NDK paths into buildozer.spec
-        # Inject literal expanded paths — configparser rejects %(HOME)s interpolation
+      # ✅ Inject paths into buildozer.spec
+      - name: Inject SDK and NDK paths
         run: |
           NDK_DIR="$HOME/.buildozer/android/platform/android-ndk-r25b"
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
 
-          # NDK path
-          if grep -q "^android.ndk_path" buildozer.spec; then
-            sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec
-          else
-            sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
-          fi
+          sed -i "s|^android.ndk_path.*|android.ndk_path = ${NDK_DIR}|" buildozer.spec || \
+          sed -i "s|^android.ndk = r25b|android.ndk = r25b\nandroid.ndk_path = ${NDK_DIR}|" buildozer.spec
 
-          # SDK path — this is the key fix: tells Buildozer to use our SDK and skip download
-          if grep -q "^android.sdk_path" buildozer.spec; then
-            sed -i "s|^android.sdk_path.*|android.sdk_path = ${SDK_DIR}|" buildozer.spec
-          else
-            sed -i "s|^android.api = 33|android.sdk_path = ${SDK_DIR}\nandroid.api = 33|" buildozer.spec
-          fi
+          sed -i "s|^android.sdk_path.*|android.sdk_path = ${SDK_DIR}|" buildozer.spec || \
+          sed -i "s|^android.api = 33|android.sdk_path = ${SDK_DIR}\nandroid.api = 33|" buildozer.spec
 
-          echo "Verified spec paths:"
-          grep -E "ndk|sdk" buildozer.spec
-
+      # ✅ Accept licenses
       - name: Pre-seed Android SDK licenses
         run: |
           mkdir -p ~/.android
           echo "count=0" > ~/.android/repositories.cfg
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$SDK_DIR/licenses"
-          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" \
+          printf "8933bad161af4178b1185d1a37fbf41ea5269c55\n" \
             > "$SDK_DIR/licenses/android-sdk-license"
 
-      - name: Restore Buildozer packages cache
+      # ✅ Cache
+      - name: Restore Buildozer cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.buildozer/android/packages
-          key: ${{ runner.os }}-buildozer-packages-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-packages-
+            ${{ runner.os }}-buildozer-
 
+      # 🚀 BUILD (CLEANED + FIXED)
       - name: Build APK
         run: |
-          # Run buildozer — it will fail on pyjnius first time if pyjnius
-          # source hasn't been extracted yet. We run it, let it extract,
-          # then patch and re-run. Use a wrapper approach instead:
-          # Patch pyjnius recipe in p4a to use a newer tagged version before build.
-          P4A_DIR=".buildozer/android/platform/python-for-android"
-          mkdir -p "$P4A_DIR"
-
-          # Clone p4a ourselves so buildozer skips re-cloning
-          if [ ! -d "$P4A_DIR/.git" ]; then
-            git clone -b master --single-branch --depth 1               https://github.com/kivy/python-for-android.git "$P4A_DIR"
-          fi
-
-          # Patch pyjnius recipe to use a version that supports Python 3
-          JNIUS_RECIPE="$P4A_DIR/pythonforandroid/recipes/pyjnius/__init__.py"
-          if [ -f "$JNIUS_RECIPE" ]; then
-            echo "Current pyjnius recipe version:"
-            grep -i "version\|url\|sha512" "$JNIUS_RECIPE" | head -5
-            # Point to pyjnius 1.6.1 which has Python 3 + Cython 3 support
-            sed -i "s/version = .*/version = '1.6.1'/" "$JNIUS_RECIPE"
-            # Clear hash so p4a re-downloads
-            sed -i "/sha512sum/d" "$JNIUS_RECIPE"
-            echo "Patched pyjnius recipe to 1.6.1"
-            grep -i "version\|url" "$JNIUS_RECIPE" | head -5
-          else
-            echo "ERROR: pyjnius recipe not found at $JNIUS_RECIPE"
-            ls "$P4A_DIR/pythonforandroid/recipes/" | grep -i jnius || true
-          fi
-
-          buildozer -v android debug
+          unset GRADLE_HOME
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          yes | buildozer -v android debug
         env:
           BUILDOZER_DEBUG: 1
           PYTHONUNBUFFERED: 1
-          # Kivy 2.3.0 requires Cython 3.x to generate .c files from .pyx
-          CYTHON: cython
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx4g"
 
-      - name: Save Buildozer packages cache
+      # ✅ Save cache
+      - name: Save Buildozer cache
         uses: actions/cache/save@v4
         if: always()
         with:
           path: ~/.buildozer/android/packages
-          key: ${{ runner.os }}-buildozer-packages-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
 
+      # ✅ Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         if: success()
@@ -174,6 +137,7 @@ jobs:
           path: bin/*.apk
           retention-days: 30
 
+      # ✅ Upload logs if fail
       - name: Upload logs on failure
         uses: actions/upload-artifact@v4
         if: failure()

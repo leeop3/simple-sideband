@@ -8,54 +8,104 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            python3-pip python3-setuptools \
+            openjdk-17-jdk \
+            python3-pip python3-setuptools python3-wheel \
             build-essential autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev \
-            libjpeg-dev libpng-dev libbz2-dev
-      
-      - name: Install Buildozer
+            libjpeg-dev libpng-dev libbz2-dev \
+            wget curl unzip git
+
+      - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install buildozer cython==0.29.36
-      
+          pip install --upgrade pip setuptools wheel
+          pip install buildozer==1.5.0 cython==0.29.37
+          pip install urllib3 requests --upgrade
+
+      - name: Set up Android NDK r25b
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25b
+          add-to-path: true
+
+      - name: Cache Buildozer platform directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/apache-ant-1.9.4
+          key: ${{ runner.os }}-buildozer-platform-v1
+          restore-keys: |
+            ${{ runner.os }}-buildozer-platform-
+
+      - name: Cache Buildozer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer/android/packages
+          key: ${{ runner.os }}-buildozer-packages-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-packages-
+
+      - name: Configure Buildozer to use pre-installed NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          # Symlink the NDK installed by nttld/setup-ndk so Buildozer finds it
+          ln -sfn "$ANDROID_NDK_HOME" ~/.buildozer/android/platform/android-ndk-r25b
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
       - name: Accept Android licenses
         run: |
           mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
-          yes | sdkmanager --licenses || true
-      
-      - name: Build APK with Buildozer
+          echo "count=0" > ~/.android/repositories.cfg
+          # Licenses are accepted after SDK is bootstrapped by Buildozer's first run;
+          # pre-seed the license hashes to avoid interactive prompts.
+          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" \
+            > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" \
+            >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" \
+            >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+
+      - name: Build APK
         run: |
           buildozer -v android debug
-      
-      - name: Upload APK artifact
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          BUILDOZER_DEBUG: 1
+          PYTHONUNBUFFERED: 1
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: simplesideband-apk
+          name: app-apk
           path: bin/*.apk
           retention-days: 30
-      
-      - name: Create Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+      - name: Upload logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
         with:
-          files: bin/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: build-logs
+          path: |
+            .buildozer/logs/
+            *.log
+          retention-days: 7

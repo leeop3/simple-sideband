@@ -18,8 +18,8 @@ fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,RECEIVE_BOOT_COMPLETED,VIBRATE,WAKE_LOCK,FOREGROUND_SERVICE
 
 android.api = 33
-android.minapi = 27
-android.ndk = r25b
+android.minapi = 21
+android.ndk = 25b
 android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
 

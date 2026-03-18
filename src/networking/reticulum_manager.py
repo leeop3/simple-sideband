@@ -43,10 +43,8 @@ class ReticulumManager:
                 target_port=port
             )
             self.rns.add_interface(interface)
+            print(f"Successfully added TCP interface to {host}")
             return True
         except Exception as e:
-            print(f"TCP Interface error: {str(e)}") # Fixed: string conversion
+            print(f"TCP Interface error: {str(e)}")
             return False
-
-    def shutdown(self):
-        self.rns.shutdown()

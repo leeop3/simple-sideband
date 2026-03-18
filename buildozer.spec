@@ -1,4 +1,9 @@
 [app]
+title = SimpleSideband
+package.name = simplesideband
+package.domain = org.simplesideband
+source.dir = src
+version = 0.2.0
 
 # (str) Title of your application
 title = SimpleSideband
@@ -8,9 +13,9 @@ package.name = simplesideband
 
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.simplesideband
+android.activity_class = org.simplesideband.simplesideband.PythonActivity
+android.add_src = src/java
 
-# (str) Custom Android Manifest to use
-android.manifest = src/AndroidManifest.xml
 
 # (str) Source code where the main.py live
 source.dir = src

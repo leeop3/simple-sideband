@@ -1,9 +1,4 @@
 [app]
-title = SimpleSideband
-package.name = simplesideband
-package.domain = org.simplesideband
-source.dir = src
-version = 0.2.0
 
 # (str) Title of your application
 title = SimpleSideband
@@ -13,9 +8,6 @@ package.name = simplesideband
 
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.simplesideband
-android.activity_class = org.simplesideband.simplesideband.PythonActivity
-android.add_src = src/java
-
 
 # (str) Source code where the main.py live
 source.dir = src
@@ -33,8 +25,6 @@ source.exclude_dirs = venv,.venv,tests,__pycache__,.git,.buildozer,bin
 version = 0.2.0
 
 # (list) Application requirements
-# hostpython3 and pyjnius are required for your custom Java/Kotlin code
-# sqlite3, openssl, and libbz2 are required for Reticulum/RNS
 requirements = python3, kivy==2.3.0, rns, lxmf, pillow, msgpack, cryptography, requests, plyer, sqlite3, hostpython3, openssl, libbz2, pyjnius
 
 # (str) Supported orientation
@@ -63,18 +53,18 @@ android.accept_sdk_license = True
 
 # --- CUSTOM JAVA/KOTLIN CONFIGURATION ---
 
-# (list) The directory where your Java/Kotlin files are (src/java/org/simplesideband/simplesideband/...)
+# (list) The directory where your Java/Kotlin files are
 android.add_src = src/java
 
-# (str) Full name of the Java class that starts the app (MUST match your PythonActivity.java package)
+# (str) Full name of the Java class that starts the app
 android.activity_class = org.simplesideband.simplesideband.PythonActivity
 
-# (list) Gradle dependencies (Merged Core-KTX and Kotlin support into ONE line)
+# (list) Gradle dependencies
 android.gradle_dependencies = androidx.core:core-ktx:1.9.0, org.jetbrains.kotlin:kotlin-stdlib:1.8.22
 
 # --- COMPILATION RECIPES ---
 
-# (list) Recipes to use during build (Ensure C-extensions are compiled correctly)
+# (list) Recipes to use during build
 android.recipes = cryptography, pillow, sqlite3, openssl, libbz2, bz2
 
 [buildozer]

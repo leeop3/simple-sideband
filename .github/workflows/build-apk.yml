@@ -63,7 +63,7 @@ jobs:
 
       # ✅ NEW CACHE STEP (v2 Master Reset)
       - name: Buildozer Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.buildozer
